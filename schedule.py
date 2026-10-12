@@ -14,6 +14,7 @@ REGULAR_HOURS = 5                    # 2:30-7:30: the hourly rate x this = the n
 ON_TIME_BONUS = 10                   # clocked in before the start (until x:29)
 KEEP_TIME_BONUS = 20                 # clocked in up to 10 minutes after the start (also given when on time)
 LATE_GRACE_MINUTES = 10
+CLOCK_IN_OPENS_MINUTES_BEFORE = 60     # keys 1 and 2 are offered from an hour before the start until the end
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
 UMAN_NIGHTS_EACH_WAY = 3
 
@@ -52,6 +53,14 @@ def window(d):
     """(start, end) datetimes of the session on morning `d`."""
     start = BHZ_START if bhz_range_of(d) else REGULAR_START
     return (datetime.combine(d, start, tzinfo=db.TZ), datetime.combine(d, END, tzinfo=db.TZ))
+
+
+def clock_in_open(dt):
+    """Is it time to clock in / leave early? From an hour before the regular start (also in bein hazmanim,
+    so whoever comes at the regular time hears the bein hazmanim notice) until the end."""
+    d = session_date(dt)
+    opens = datetime.combine(d, REGULAR_START, tzinfo=db.TZ) - timedelta(minutes=CLOCK_IN_OPENS_MINUTES_BEFORE)
+    return opens <= dt <= window(d)[1]
 
 
 def default_exit(d):
@@ -147,8 +156,6 @@ def uman_credit(emp, heb_year, today):
 
 
 def uman_question_due(today):
-    """After Rosh Hashana, until the end of Cheshvan. Returns the Hebrew year or None."""
+    """From after Rosh Hashana until the end of Tishrei. Returns the Hebrew year or None."""
     y, m, dday = hebcal.from_gregorian(today)
-    if (m == 7 and dday >= 3) or m == 8:
-        return y
-    return None
+    return y if m == 7 and dday >= 3 else None

@@ -282,7 +282,8 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    txt, keys = r.t("menu_main"), ["1", "2", "5", "9"]
+    open_now = schedule.clock_in_open(db.now())
+    txt, keys = (r.t("menu_main"), ["1", "2", "5", "9"]) if open_now else (r.t("menu_closed"), ["5", "9"])
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
@@ -295,6 +296,8 @@ def main_choice(r, answer):
     if emp is None:
         return ask_phone(r)
     actions = {"1": clock_in, "2": early_exit, "3": shuttle, "5": fix_start, "9": ext9}
+    if answer in ("1", "2") and not schedule.clock_in_open(db.now()):
+        answer = "closed"
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
     r.say(r.t("invalid"))

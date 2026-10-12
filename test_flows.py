@@ -476,6 +476,28 @@ def test_no_sms_anywhere():
         assert "SendSms" not in src and "withSMS" not in src
 
 
+def test_clock_in_only_around_kollel_hours():
+    seed()
+    at(2026, 11, 16, 18, 30)
+    c = Call("0503333331")
+    t = c.start()
+    assert "לעדכון כניסה" not in t and "אפשרי משעה לפני" in t
+    assert "בחירה שגויה" in c.press("1")
+    assert attendance("300") == []
+    at(2026, 11, 17, 1, 29)
+    assert "לעדכון כניסה" not in Call("0503333331").start()
+    at(2026, 11, 17, 1, 30)
+    assert "לעדכון כניסה" in Call("0503333331").start()
+    at(2026, 11, 17, 7, 31)
+    assert "לעדכון כניסה" not in Call("0503333331").start()
+
+
+def test_uman_not_asked_in_cheshvan():
+    seed()
+    at(2026, 10, 12, 2, 0)                                           # 1 Cheshvan 5787
+    assert "אומן" not in Call("0503333331").start()
+
+
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
 
