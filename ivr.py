@@ -295,6 +295,8 @@ def main_choice(r, answer):
     if emp is None:
         return ask_phone(r)
     actions = {"1": clock_in, "2": early_exit, "3": shuttle, "5": fix_start, "9": ext9}
+    if answer == "1" and schedule.bhz_notice_due(emp, db.now()):
+        bhz_notice(r)
     if answer in ("1", "2") and not schedule.clock_in_open(emp, db.now()):
         r.say(r.t("closed_until", time=r.time(schedule.next_opening(emp, db.now()))))
         return main_menu(r)
@@ -325,13 +327,15 @@ def clock_in(r):
         older = [x for x in older if schedule.session_date(db.parse(x["clock_in"])) < tonight]
         for x in older[1:]:                                    # only the latest night is asked about
             c.execute("UPDATE attendance SET exit_confirmed=1 WHERE id=?", (x["id"],))
-    bhz = schedule.bhz_range_of(tonight)
-    if bhz and (schedule.is_rider(emp) or t0 < schedule.window(tonight)[0]):
-        ly, lm, ld = hebcal.from_gregorian(bhz[1])
-        r.say(r.t("bhz_notice", date=f"{ld} {hebcal.month_name(lm, ly, 'en' if r.lang == 'en' else 'he')}"))
     if older:
         return ask_prev_exit(r, older[0]["id"])
     finish_clock_in(r)
+
+
+def bhz_notice(r):
+    last = schedule.bhz_range_of(schedule.session_date(db.now()))[1]
+    ly, lm, ld = hebcal.from_gregorian(last)
+    r.say(r.t("bhz_notice", date=f"{ld} {hebcal.month_name(lm, ly, 'en' if r.lang == 'en' else 'he')}"))
 
 
 def prev_exit_info(rid):

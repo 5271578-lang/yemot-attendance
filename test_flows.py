@@ -256,14 +256,22 @@ def test_early_exit_then_next_night_shows_it():
     assert "לא נמצאה כניסה" in t and "לעדכון כניסה" in t
 
 
-def test_bein_hazmanim_notice_on_early_call():
+def test_bein_hazmanim_notice():
     seed()
-    at(2026, 12, 6, 2, 25)                                          # Chanuka 5787
+    at(2026, 12, 6, 1, 0)                                            # Chanuka 5787, rider at the regular time
     t = menu_call("0503333331").press("1")
-    assert "בין הזמנים" in t and "3 וחצי" in t and "2 טבת" in t
-    at(2026, 12, 7, 3, 40)
-    assert "בין הזמנים" in menu_call("0503333332").press("1")      # riders always hear it
-    assert "בין הזמנים" not in menu_call("0503333334").press("1")  # others: only before 3:30
+    assert "בין הזמנים" in t and "3 וחצי" in t and "2 טבת" in t and "ייפתח בשעה 1 ו 45 דקות" in t
+    assert attendance("300") == []
+    at(2026, 12, 6, 1, 50)                                           # rider at the bein hazmanim time
+    t = menu_call("0503333331").press("1")
+    assert "בין הזמנים" not in t and "הכניסה שלך עודכנה" in t
+    at(2026, 12, 6, 1, 35)                                           # non-rider at the regular time
+    t = menu_call("0503333334").press("1")
+    assert "בין הזמנים" in t and "הכניסה שלך עודכנה" in t
+    at(2026, 12, 7, 2, 40)                                           # non-rider later: no notice
+    assert "בין הזמנים" not in menu_call("0503333334").press("1")
+    at(2026, 11, 17, 1, 0)                                           # regular night: no notice
+    assert "בין הזמנים" not in menu_call("0503333331").press("1")
 
 
 # ---- stipend --------------------------------------------------------------
@@ -493,7 +501,7 @@ def test_clock_in_opening_times():
     at(2026, 12, 6, 1, 40)                                           # Chanuka: riders open at 1:45
     assert "ייפתח בשעה 1 ו 45 דקות" in menu_call("0503333331").press("1")
     t = menu_call("0503333334").press("1")                           # others: regular 1:30
-    assert "הכניסה שלך עודכנה" in t and "בין הזמנים" in t
+    assert "הכניסה שלך עודכנה" in t
 
 
 def test_uman_not_asked_in_cheshvan():

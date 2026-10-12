@@ -18,6 +18,7 @@ LATE_GRACE_MINUTES = 10
 OPENS_RIDERS = time(0, 45)           # in a shuttle group (Meron)
 OPENS_RIDERS_BHZ = time(1, 45)
 OPENS_OTHERS = time(1, 30)           # everyone else, also in bein hazmanim
+BHZ_NOTICE_OTHERS_UNTIL = time(2, 30)   # in bein hazmanim, non-riders clocking in before this hear the notice
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
 UMAN_NIGHTS_EACH_WAY = 3
 
@@ -68,6 +69,20 @@ def opens_at(emp, d):
     else:
         t = OPENS_OTHERS
     return datetime.combine(d, t, tzinfo=db.TZ)
+
+
+def regular_opens_at(emp, d):
+    return datetime.combine(d, OPENS_RIDERS if is_rider(emp) else OPENS_OTHERS, tzinfo=db.TZ)
+
+
+def bhz_notice_due(emp, dt):
+    """In bein hazmanim, pressing 1 at the regular-night time plays the bein hazmanim notice.
+    Riders: between 0:45 and 1:45 (and they cannot clock in yet). Others: 1:30 to 2:30 (and they can)."""
+    d = session_date(dt)
+    if not bhz_range_of(d):
+        return False
+    until = OPENS_RIDERS_BHZ if is_rider(emp) else BHZ_NOTICE_OTHERS_UNTIL
+    return regular_opens_at(emp, d) <= dt < datetime.combine(d, until, tzinfo=db.TZ)
 
 
 def clock_in_open(emp, dt):
