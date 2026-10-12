@@ -262,9 +262,8 @@ def test_bein_hazmanim_notice_on_early_call():
     t = menu_call("0503333331").press("1")
     assert "בין הזמנים" in t and "3 וחצי" in t and "2 טבת" in t
     at(2026, 12, 7, 3, 40)
-    c = menu_call("0503333332")
-    t = c.press("1")
-    assert "בין הזמנים" not in t                                   # came at the bein hazmanim time
+    assert "בין הזמנים" in menu_call("0503333332").press("1")      # riders always hear it
+    assert "בין הזמנים" not in menu_call("0503333334").press("1")  # others: only before 3:30
 
 
 # ---- stipend --------------------------------------------------------------
@@ -476,20 +475,25 @@ def test_no_sms_anywhere():
         assert "SendSms" not in src and "withSMS" not in src
 
 
-def test_clock_in_only_around_kollel_hours():
+def test_clock_in_opening_times():
     seed()
     at(2026, 11, 16, 18, 30)
-    c = Call("0503333331")
-    t = c.start()
-    assert "לעדכון כניסה" not in t and "אפשרי משעה לפני" in t
-    assert "בחירה שגויה" in c.press("1")
+    c = Call("0503333331")                                           # rider, regular night: opens 0:45
+    assert "לעדכון כניסה" in c.start()
+    assert "ייפתח בשעה 0 ו 45 דקות" in c.press("1") and "לעדכון כניסה" in c.last
     assert attendance("300") == []
-    at(2026, 11, 17, 1, 29)
-    assert "לעדכון כניסה" not in Call("0503333331").start()
-    at(2026, 11, 17, 1, 30)
-    assert "לעדכון כניסה" in Call("0503333331").start()
-    at(2026, 11, 17, 7, 31)
-    assert "לעדכון כניסה" not in Call("0503333331").start()
+    o = Call("0503333334")                                           # not a rider: opens 1:30
+    o.start()
+    assert "ייפתח בשעה 1 ו 30 דקות" in o.press("1")
+    at(2026, 11, 17, 0, 50)
+    assert "הכניסה שלך עודכנה" in menu_call("0503333331").press("1")
+    assert "ייפתח בשעה 1 ו 30 דקות" in menu_call("0503333334").press("1")
+    at(2026, 11, 17, 7, 31)                                          # after the session: next opening tomorrow
+    assert "ייפתח בשעה 1 ו 30 דקות" in menu_call("0503333334").press("1")
+    at(2026, 12, 6, 1, 40)                                           # Chanuka: riders open at 1:45
+    assert "ייפתח בשעה 1 ו 45 דקות" in menu_call("0503333331").press("1")
+    t = menu_call("0503333334").press("1")                           # others: regular 1:30
+    assert "הכניסה שלך עודכנה" in t and "בין הזמנים" in t
 
 
 def test_uman_not_asked_in_cheshvan():

@@ -282,8 +282,7 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    open_now = schedule.clock_in_open(db.now())
-    txt, keys = (r.t("menu_main"), ["1", "2", "5", "9"]) if open_now else (r.t("menu_closed"), ["5", "9"])
+    txt, keys = r.t("menu_main"), ["1", "2", "5", "9"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
@@ -296,8 +295,9 @@ def main_choice(r, answer):
     if emp is None:
         return ask_phone(r)
     actions = {"1": clock_in, "2": early_exit, "3": shuttle, "5": fix_start, "9": ext9}
-    if answer in ("1", "2") and not schedule.clock_in_open(db.now()):
-        answer = "closed"
+    if answer in ("1", "2") and not schedule.clock_in_open(emp, db.now()):
+        r.say(r.t("closed_until", time=r.time(schedule.next_opening(emp, db.now()))))
+        return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
     r.say(r.t("invalid"))
@@ -325,6 +325,10 @@ def clock_in(r):
         older = [x for x in older if schedule.session_date(db.parse(x["clock_in"])) < tonight]
         for x in older[1:]:                                    # only the latest night is asked about
             c.execute("UPDATE attendance SET exit_confirmed=1 WHERE id=?", (x["id"],))
+    bhz = schedule.bhz_range_of(tonight)
+    if bhz and (schedule.is_rider(emp) or t0 < schedule.window(tonight)[0]):
+        ly, lm, ld = hebcal.from_gregorian(bhz[1])
+        r.say(r.t("bhz_notice", date=f"{ld} {hebcal.month_name(lm, ly, 'en' if r.lang == 'en' else 'he')}"))
     if older:
         return ask_prev_exit(r, older[0]["id"])
     finish_clock_in(r)
@@ -390,11 +394,6 @@ def finish_clock_in(r):
         c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day) VALUES (?,?,?,?,?)",
                   (emp["id"], t0.isoformat(), y, m, d))
     r.say(r.t("entry_saved", time=r.time(t0)))
-    tonight = schedule.session_date(t0)
-    bhz = schedule.bhz_range_of(tonight)
-    if bhz and t0 < schedule.window(tonight)[0]:
-        ly, lm, ld = hebcal.from_gregorian(bhz[1])
-        r.say(r.t("bhz_notice", date=f"{ld} {hebcal.month_name(lm, ly, 'en' if r.lang == 'en' else 'he')}"))
     r.say(r.t("goodbye")).hangup()
 
 

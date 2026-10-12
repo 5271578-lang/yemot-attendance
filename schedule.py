@@ -14,7 +14,10 @@ REGULAR_HOURS = 5                    # 2:30-7:30: the hourly rate x this = the n
 ON_TIME_BONUS = 10                   # clocked in before the start (until x:29)
 KEEP_TIME_BONUS = 20                 # clocked in up to 10 minutes after the start (also given when on time)
 LATE_GRACE_MINUTES = 10
-CLOCK_IN_OPENS_MINUTES_BEFORE = 60     # keys 1 and 2 are offered from an hour before the start until the end
+# When keys 1 and 2 open (until the end of the session)
+OPENS_RIDERS = time(0, 45)           # in a shuttle group (Meron)
+OPENS_RIDERS_BHZ = time(1, 45)
+OPENS_OTHERS = time(1, 30)           # everyone else, also in bein hazmanim
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
 UMAN_NIGHTS_EACH_WAY = 3
 
@@ -55,12 +58,28 @@ def window(d):
     return (datetime.combine(d, start, tzinfo=db.TZ), datetime.combine(d, END, tzinfo=db.TZ))
 
 
-def clock_in_open(dt):
-    """Is it time to clock in / leave early? From an hour before the regular start (also in bein hazmanim,
-    so whoever comes at the regular time hears the bein hazmanim notice) until the end."""
+def is_rider(emp):
+    return bool(emp["shuttle_group"])
+
+
+def opens_at(emp, d):
+    if is_rider(emp):
+        t = OPENS_RIDERS_BHZ if bhz_range_of(d) else OPENS_RIDERS
+    else:
+        t = OPENS_OTHERS
+    return datetime.combine(d, t, tzinfo=db.TZ)
+
+
+def clock_in_open(emp, dt):
     d = session_date(dt)
-    opens = datetime.combine(d, REGULAR_START, tzinfo=db.TZ) - timedelta(minutes=CLOCK_IN_OPENS_MINUTES_BEFORE)
-    return opens <= dt <= window(d)[1]
+    return opens_at(emp, d) <= dt <= window(d)[1]
+
+
+def next_opening(emp, dt):
+    d = session_date(dt)
+    if dt > window(d)[1]:
+        d += timedelta(days=1)
+    return opens_at(emp, d)
 
 
 def default_exit(d):
