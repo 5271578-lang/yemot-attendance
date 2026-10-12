@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: attendance-line
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 --threads 4 -b 0.0.0.0:$PORT app:app
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DB_PATH
+        value: /var/data/attendance.db
+      - key: TIMEZONE
+        value: Asia/Jerusalem
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: IVR_SECRET
+        generateValue: true
+      - key: NBS_TOKEN
+        sync: false
+      - key: RECORD_FOLDER
+        value: /8
+      - key: NOTIFY_BY_CALL
+        value: "1"
