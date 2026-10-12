@@ -32,7 +32,44 @@ def _get(command, timeout=20, **params):
     return r
 
 
-def run_tts_calls(texts_by_phone):
+REDIAL_WAIT_SECONDS = 90
+
+
+def redial_template(attempts):
+    """Campaign template that dials each number up to `attempts` times, stopping once answered.
+    Created on first use and remembered. Returns its id, or None."""
+    key = f"nbs_template_{attempts}"
+    tid = db.get_setting(key)
+    if tid:
+        return tid
+    name = f"attendance-shuttle-{attempts}"
+    try:
+        templates = _get("GetTemplates").json().get("templates") or []
+        tid = next((str(t["templateId"]) for t in templates if t.get("description") == name), None)
+        if not tid:
+            tid = str(_get("CreateTemplate", description=name).json()["templateId"])
+        ok = _get("UpdateTemplate", templateId=tid, maxDialAttempts=str(attempts), redialWait=str(REDIAL_WAIT_SECONDS),
+                  redialPolicy="FAILED").json().get("responseStatus") == "OK"
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+    if ok:
+        db.set_setting(key, tid)
+        return tid
+    return None
+
+
+def run_tts_calls_with_attempts(texts_by_phone, attempts_by_phone):
+    """Like run_tts_calls, but each phone gets its own number of attempts (1-5)."""
+    groups = {}
+    for phone, txt in texts_by_phone.items():
+        groups.setdefault(attempts_by_phone.get(phone) or 1, {})[phone] = txt
+    results = [run_tts_calls(texts, template_id=redial_template(n) if n > 1 else None)
+               for n, texts in sorted(groups.items())]
+    ok = all(r[0] for r in results)
+    return ok, ", ".join(r[1] for r in results)
+
+
+def run_tts_calls(texts_by_phone, template_id=None):
     """Phone each number and read it its own text. Returns (ok, campaign_id_or_error)."""
     phones = {israeli(p): t for p, t in texts_by_phone.items() if israeli(p)}
     if not phones:
@@ -40,8 +77,8 @@ def run_tts_calls(texts_by_phone):
     if not enabled():
         return False, "NBS_TOKEN not set"
     params = {"ttsMode": "1", "phones": json.dumps(phones, ensure_ascii=False)}
-    if TEMPLATE_ID:
-        params["templateId"] = TEMPLATE_ID
+    if template_id or TEMPLATE_ID:
+        params["templateId"] = template_id or TEMPLATE_ID
     if CALLER_ID:
         params["callerId"] = CALLER_ID
     try:

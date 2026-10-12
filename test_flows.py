@@ -3,8 +3,10 @@ Run:  python test_flows.py
 """
 import os
 import re
+import sqlite3
 import tempfile
-from datetime import timedelta
+import time as _time
+from datetime import datetime, timedelta
 
 os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test.db")
 os.environ["ADMIN_PASSWORD"] = "pw"
@@ -14,45 +16,58 @@ os.environ.pop("NBS_TOKEN", None)
 import app as appmod  # noqa: E402
 import db  # noqa: E402
 import hebcal  # noqa: E402
-import ivr  # noqa: E402
 import nbs  # noqa: E402
+import schedule  # noqa: E402
 
 client = appmod.app.test_client()
 AUTH = {"Authorization": "Basic YWRtaW46cHc="}      # admin:pw
-SENT_CALLS = []
+SENT = []
+NOW = [datetime(2026, 11, 17, 2, 20, tzinfo=db.TZ)]   # 7 Kislev 5787: a regular night
 
 
-def fake_calls(texts):
-    SENT_CALLS.append(texts)
-    return True, "4242"
+def fake_now():
+    return NOW[0]
 
 
-nbs.run_tts_calls = fake_calls
+def at(y, mo, d, h, mi):
+    NOW[0] = datetime(y, mo, d, h, mi, tzinfo=db.TZ)
+
+
+db.now = fake_now
 nbs.enabled = lambda: True
+nbs.run_tts_calls = lambda texts, template_id=None: (SENT.append(("plain", texts)) or (True, "42"))
+nbs.run_tts_calls_with_attempts = lambda texts, attempts: (SENT.append(("attempts", texts, attempts)) or (True, "43"))
 _n = 0
 
 
 def seed():
-    SENT_CALLS.clear()
+    SENT.clear()
+    at(2026, 11, 17, 2, 20)
     with db.connect() as c:
         for t in ("message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
-                  "call_sessions", "employees"):
+                  "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
-        rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0),
-                ("200", "Site Mgr A", "0502222222", "2222", "onsite_manager", "A", None, None, 0),
-                ("201", "Site Mgr B", "0502222223", "2223", "onsite_manager", "B", None, None, 0),
-                ("300", "Worker A1", "0503333331", "3331", "employee", "A", 1, None, 0),
-                ("301", "Worker A2", "0503333332", "3332", "employee", "A", 2, None, 0),
-                ("302", "Worker B1", "0503333333", "3333", "employee", "B", 1, None, 0),
-                ("303", "No Phone", None, "3334", "employee", "A", 1, None, 0),
-                ("400", "Driver A1", "0504444444", "4444", "employee", "A", 1, None, 1)]
-        c.executemany("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver) "
-                      "VALUES (?,?,?,?,?,?,?,?,?)", rows)
+        rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
+                ("200", "Site Mgr A", "0502222222", "2222", "onsite_manager", "A", None, None, 0, None),
+                ("201", "Site Mgr B", "0502222223", "2223", "onsite_manager", "B", None, None, 0, None),
+                ("300", "Worker A1", "0503333331", "3331", "employee", "A", 1, None, 0, 2),
+                ("301", "Worker A2", "0503333332", "3332", "employee", "A", 2, None, 0, 1),
+                ("302", "Worker B1", "0503333333", "3333", "employee", "B", 1, None, 0, 3),
+                ("303", "No Shuttle", "0503333334", "3334", "employee", "A", None, None, 0, None),
+                ("304", "New Rider", "0503333335", "3335", "employee", "A", 1, None, 0, None),
+                ("400", "Driver A1", "0504444444", "4444", "employee", "A", 1, None, 1, 1)]
+        c.executemany("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
+                      "shuttle_calls) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
 
 
-def emp_id(num):
+def emp(num):
     with db.connect() as c:
-        return c.execute("SELECT id FROM employees WHERE emp_number=?", (num,)).fetchone()["id"]
+        return c.execute("SELECT * FROM employees WHERE emp_number=?", (num,)).fetchone()
+
+
+def attendance(num):
+    with db.connect() as c:
+        return c.execute("SELECT * FROM attendance WHERE employee_id=? ORDER BY clock_in", (emp(num)["id"],)).fetchall()
 
 
 class Call:
@@ -88,14 +103,14 @@ class Call:
         return self.last.endswith("go_to_folder=hangup")
 
 
-def logged_in(phone):
+def menu_call(phone):
     c = Call(phone)
     t = c.start()
-    assert "לכניסה הקישו 1" in t, t
+    assert "לעדכון כניסה הקישו 1" in t, t
     return c
 
 
-# ---- tests ---------------------------------------------------------------
+# ---- identification ------------------------------------------------------
 
 def test_wrong_secret_rejected():
     seed()
@@ -105,257 +120,360 @@ def test_wrong_secret_rejected():
 
 def test_protocol_format():
     seed()
-    t = logged_in("0503333331").last
-    # one read command: messages, '=', then the 14 positional fields
+    t = menu_call("0503333331").last
     msgs, fields = t[len("read="):].split("=")
     assert msgs.startswith("t-") and ".t-" in msgs
     f = fields.split(",")
-    assert len(f) == 14 and f[1] == "no" and f[9] == "1.2.5.9" and f[11] == "Ok" and f[12] == "None"
+    assert len(f) == 14 and f[9] == "1.2.5.9" and f[11] == "Ok" and f[12] == "None"
 
 
-def test_unknown_caller_login():
+def test_unknown_phone_signs_in_with_phone_and_password():
     seed()
     c = Call()
-    assert "מספר עובד" in c.start()
-    assert "קוד אישי" in c.press("300")
+    assert "מספר הטלפון שלכם" in c.start()
+    assert "סיסמה" in c.press("050-333-3331")
     assert "שגויים" in c.press("0000")
-    c.press("300")
+    c.press("0503333331")
     t = c.press("3331")
-    assert "שלום Worker A1" in t and "לכניסה הקישו 1" in t
+    assert "שלום Worker A1" in t and "לעדכון כניסה" in t
 
 
-def test_three_bad_pins_hang_up():
+def test_three_bad_passwords_hang_up():
     seed()
     c = Call()
     c.start()
     for _ in range(3):
-        c.press("300")
+        c.press("0503333331")
         c.press("9")
     assert "יותר מדי" in c.last and c.hung_up
 
 
-def test_silence_repeats_then_hangs_up():
+def test_silence_asks_again_then_hangs_up():
     seed()
-    c = logged_in("0503333331")
+    c = menu_call("0503333331")
     t = c.press("None")
-    assert "לא התקבלה בחירה" in t and "לכניסה הקישו 1" in t
+    assert "לא התקבלה בחירה" in t and "לעדכון כניסה" in t
     c.press("None")
     c.press("None")
     assert c.hung_up
 
 
-def test_clock_in_and_out():
+def test_switch_user_from_known_phone_records_nothing():
     seed()
-    t = logged_in("050-333-3331").press("1")
-    assert "הכניסה נרשמה" in t and t.endswith("go_to_folder=hangup") and t.startswith("id_list_message=")
-    assert "כבר נרשמה" in logged_in("0503333331").press("1")
-    with db.connect() as conn:
-        a = conn.execute("SELECT * FROM attendance").fetchone()
-        conn.execute("UPDATE attendance SET clock_in=? WHERE id=?",
-                     ((db.parse(a["clock_in"]) - timedelta(hours=8, minutes=30)).isoformat(), a["id"]))
-    t = logged_in("0503333331").press("2")
-    assert "עבדת 8 שעות ו 30 דקות" in t
-    t = logged_in("0503333331").press("2")
-    assert "לא נמצאה כניסה פתוחה" in t and "לכניסה הקישו 1" in t      # back to menu, not hang up
+    c = menu_call("0503333331")
+    c.press("9")
+    assert "כניסה כמשתמש אחר" in c.press("9") and "מספר הטלפון" in c.last
+    c.press("0503333332")
+    t = c.press("3332")
+    assert "שלום Worker A2" in t
+    c.press("1")
+    assert attendance("300") == [] and len(attendance("301")) == 1
 
 
-def test_driver_menu_and_shuttle_calls():
+# ---- first call: shuttle alert count -------------------------------------
+
+def test_new_rider_chooses_alert_calls_once():
     seed()
-    c = logged_in("0504444444")
-    assert "לאישור יציאת ההסעה הקישו 3" in c.last
-    assert "קבוצה 1" in c.press("3")
+    c = Call("0503333335")
+    t = c.start()
+    assert "כמה פעמים להתקשר" in t and "לעדכון כניסה" not in t
+    t = c.press("3")
+    assert "עד 3 פעמים" in t and "לעדכון כניסה" in t
+    assert emp("304")["shuttle_calls"] == 3
+    assert "כמה פעמים" not in Call("0503333335").start()           # not asked again
+    assert "כמה פעמים" not in Call("0503333334").start()           # no shuttle group: never asked
+
+
+# ---- 1: clock in, with yesterday's exit ----------------------------------
+
+def test_clock_in_uses_call_start_time():
+    seed()
+    at(2026, 11, 17, 2, 20)
+    c = menu_call("0503333331")
+    at(2026, 11, 17, 2, 23)                                         # pressed 1 three minutes later
     t = c.press("1")
-    assert "נשלחת ל 1 עובדים" in t and c.hung_up
-    assert list(SENT_CALLS[-1]) == ["0503333331"]          # group 1 + shift A, with a phone, not the driver
-    assert "ההסעה של קבוצה 1 יצאה לדרך" in SENT_CALLS[-1]["0503333331"]
-    with db.connect() as conn:
-        assert conn.execute("SELECT status FROM shuttle_runs").fetchone()[0] == "sent"
-    # regular employee: no key 3
-    w = logged_in("0503333331")
-    assert "הסעה" not in w.last
-    assert "בחירה שגויה" in w.press("3")
+    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 20 דקות" in t and c.hung_up
+    assert db.parse(attendance("300")[0]["clock_in"]).minute == 20
+    assert "כבר נרשמה" in menu_call("0503333331").press("1")
 
 
-def test_attendance_correction_request_and_approval():
+def test_next_night_confirms_default_exit():
     seed()
-    c = logged_in("0503333331")
-    assert "לתיקון שעת כניסה" in c.press("5")
-    c.press("1")                              # clock-in
-    c.press("2")                              # yesterday
-    assert "אינה תקינה" in c.press("2599")
-    t = c.press("0815")
-    assert "נשמרה ותועבר לאישור" in t and "8 ו 15 דקות" in t
-    c.press("5"); c.press("2"); c.press("2"); c.press("1630")
-    with db.connect() as conn:
-        ks = conn.execute("SELECT * FROM corrections ORDER BY id").fetchall()
-    assert [k["kind"] for k in ks] == ["in", "out"] and all(k["status"] == "pending" for k in ks)
-    # approving clock-out first fails, then clock-in, then clock-out works
-    client.post("/admin/corrections", data={"id": ks[1]["id"], "action": "approve"}, headers=AUTH)
-    client.post("/admin/corrections", data={"id": ks[0]["id"], "action": "approve"}, headers=AUTH)
-    client.post("/admin/corrections", data={"id": ks[1]["id"], "action": "approve"}, headers=AUTH)
-    with db.connect() as conn:
-        a = conn.execute("SELECT * FROM attendance").fetchone()
-        statuses = [k["status"] for k in conn.execute("SELECT status FROM corrections ORDER BY id")]
-    assert statuses == ["approved", "approved"]
-    yday = (db.now() - timedelta(days=1)).date()
-    assert db.parse(a["clock_in"]).date() == yday and db.parse(a["clock_in"]).hour == 8
-    assert (db.parse(a["clock_out"]) - db.parse(a["clock_in"])) == timedelta(hours=8, minutes=15)
+    at(2026, 11, 16, 2, 25)
+    menu_call("0503333331").press("1")
+    at(2026, 11, 17, 2, 28)
+    c = menu_call("0503333331")
+    t = c.press("1")
+    assert "היציאה שלך אתמול מוגדרת לשעה 7 ו 30 דקות" in t and "ארבע ספרות" in t
+    at(2026, 11, 17, 2, 31)
+    t = c.press("1")
+    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 28 דקות" in t
+    a = attendance("300")
+    assert a[0]["clock_out"] and db.parse(a[0]["clock_out"]).hour == 7 and a[0]["exit_confirmed"] == 1
+    assert len(a) == 2 and db.parse(a[1]["clock_in"]).minute == 28
 
 
-def ext9_send(phone, choice, target=None, rec="ivr2:/8/msg123.wav"):
-    c = logged_in(phone)
-    c.press("9")
-    t = c.press("2")
-    if "לעובד מסוים" in t:
-        t = c.press(choice)
-        if choice == "4":
-            t = c.press(target)
-    if "record" not in t:
-        return t
-    return c.press(rec)
+def test_next_night_changes_exit_time():
+    seed()
+    at(2026, 11, 16, 2, 25)
+    menu_call("0503333331").press("1")
+    at(2026, 11, 17, 2, 25)
+    c = menu_call("0503333331")
+    c.press("1")
+    assert "אינה תקינה" in c.press("0215")                          # before that night's clock in
+    t = c.press("0645")
+    assert "שעת היציאה 6 ו 45 דקות" in t
+    assert "ארבע ספרות" in c.press("2")                             # re-enter
+    c.press("0650")
+    t = c.press("1")
+    assert "שעת היציאה נשמרה" in t and "הכניסה שלך עודכנה" in t
+    a = attendance("300")[0]
+    assert db.parse(a["clock_out"]).strftime("%H:%M") == "06:50"
 
 
-def recipients_of_last():
+def test_older_nights_are_not_asked_and_day_name_is_used():
+    seed()
+    at(2026, 11, 12, 2, 25)
+    menu_call("0503333331").press("1")
+    at(2026, 11, 13, 2, 25)
+    menu_call("0503333332").press("1")
+    at(2026, 11, 17, 2, 25)
+    t = menu_call("0503333331").press("1")
+    assert "היציאה שלך ביום חמישי" in t
+
+
+def test_early_exit_then_next_night_shows_it():
+    seed()
+    at(2026, 11, 16, 2, 25)
+    menu_call("0503333331").press("1")
+    at(2026, 11, 16, 5, 10)
+    t = menu_call("0503333331").press("2")
+    assert "היציאה החריגה נרשמה בשעה 5 ו 10 דקות" in t
+    at(2026, 11, 17, 2, 25)
+    t = menu_call("0503333331").press("1")
+    assert "מוגדרת לשעה 5 ו 10 דקות" in t
+    t = menu_call("0503333332").press("2")
+    assert "לא נמצאה כניסה" in t and "לעדכון כניסה" in t
+
+
+def test_bein_hazmanim_notice_on_early_call():
+    seed()
+    at(2026, 12, 6, 2, 25)                                          # Chanuka 5787
+    t = menu_call("0503333331").press("1")
+    assert "בין הזמנים" in t and "3 וחצי" in t and "2 טבת" in t
+    at(2026, 12, 7, 3, 40)
+    c = menu_call("0503333332")
+    t = c.press("1")
+    assert "בין הזמנים" not in t                                   # came at the bein hazmanim time
+
+
+# ---- stipend --------------------------------------------------------------
+
+def night(num, cin, cout=None):
     with db.connect() as c:
-        m = c.execute("SELECT * FROM messages ORDER BY id DESC LIMIT 1").fetchone()
-        names = sorted(r["name"] for r in c.execute(
-            "SELECT e.name FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?",
-            (m["id"],)))
-    return m, names
+        y, m, d = hebcal.from_gregorian(schedule.session_date(cin))
+        c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, heb_year, heb_month, heb_day, exit_confirmed) "
+                  "VALUES (?,?,?,?,?,?,1)", (emp(num)["id"], cin.isoformat(), cout.isoformat() if cout else None, y, m, d))
 
 
-def test_ext9_menus_by_role():
+def pay_of(num, d):
+    recs = schedule.nights_for(emp(num)["id"], d, d)[d]
+    return schedule.night_pay(emp(num), recs, d)
+
+
+def test_night_pay_rules():
     seed()
-    assert "להשארת הודעה למנהלים" in logged_in("0503333331").press("9")
-    c = logged_in("0502222222")
-    assert "להשארת הודעה הקישו 2" in c.press("9")
-    assert "לכל העובדים במשמרת שלך" in c.press("2")
-    c = logged_in("0501111111")
+    T = lambda h, m, day=17: datetime(2026, 11, day, h, m, tzinfo=db.TZ)
+    night("300", T(2, 20))                                           # on time, default exit 7:30
+    p = pay_of("300", T(2, 20).date())
+    assert (p["base"], p["bonus"], p["total"]) == (80, 30, 110)
+    night("301", T(2, 40))                                           # 10 minutes late: keeps +20
+    p = pay_of("301", T(2, 40).date())
+    assert p["bonus"] == 20 and abs(p["base"] - 80 * 290 / 300) < 0.01
+    night("302", T(2, 41))                                           # 11 minutes late: no bonus
+    assert pay_of("302", T(2, 41).date())["bonus"] == 0
+    night("303", T(2, 25), T(5, 0))                                  # left early
+    assert pay_of("303", T(2, 25).date())["base"] == 40
+    night("200", T(2, 29))                                           # on-site manager: 25 x 5
+    assert pay_of("200", T(2, 29).date())["total"] == 155
+    bhz = datetime(2026, 12, 6, 3, 25, tzinfo=db.TZ)                 # Chanuka: 3:30-7:30, 4 hours
+    night("300", bhz)
+    p = pay_of("300", bhz.date())
+    assert p["bhz"] and (p["base"], p["bonus"]) == (80, 30)
+    bhz2 = datetime(2026, 12, 7, 5, 30, tzinfo=db.TZ)                # half the bein hazmanim session
+    night("301", bhz2)
+    assert pay_of("301", bhz2.date())["base"] == 40
+
+
+# ---- Uman ----------------------------------------------------------------
+
+def test_uman_credit_question_and_amounts():
+    seed()
+    g = hebcal.to_gregorian
+    tamuz = [g(5786, 4, d) for d in range(2, 12)]                   # 10 kollel nights
+    elul = [g(5786, 6, d) for d in range(19, 29)]                    # 10 kollel nights, the last ones of Elul
+    for d in tamuz + elul:
+        night("302", datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=2, minute=20))
+    for d in tamuz[:6] + elul[:5]:                                   # 60% and 50%
+        night("300", datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=2, minute=20))
+    for d in (g(5787, 7, 3), g(5787, 7, 4)):                         # two nights after Rosh Hashana
+        night("302", datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=2, minute=20))
+    when = g(5787, 7, 5)
+    at(when.year, when.month, when.day, 2, 15)
+    c = Call("0503333331")
+    t = c.start()
+    assert "זכית לנסוע השנה לאומן" in t
+    t = c.press("1")
+    assert "אשריך שזכית" in t and "לעדכון כניסה" in t
+    with db.connect() as conn:
+        u = conn.execute("SELECT * FROM uman").fetchone()
+        b = conn.execute("SELECT * FROM bonuses ORDER BY id").fetchall()
+    assert abs(u["percent"] - 0.55) < 0.001
+    assert len(b) == 5 and all(abs(x["amount"] - 60.5) < 0.01 for x in b)      # 3 before + 2 after so far
+    assert sorted({x["heb_month"] for x in b}) == [6, 7]
+    assert "אומן" not in Call("0503333331").start()                 # asked only once
+    c = Call("0503333332")
+    assert "אומן" in c.start()
+    assert "העיקר הוא הרצון" in c.press("2")
+    o = Call()                                                       # signing in from another phone: not asked
+    o.start(); o.press("0503333333")
+    assert "אומן" not in o.press("3333")
+
+
+# ---- 3: shuttle ------------------------------------------------------------
+
+def test_driver_sends_with_each_riders_attempts():
+    seed()
+    c = menu_call("0504444444")
+    assert "לאישור יציאת ההסעה הקישו 3" in c.last
+    c.press("3")
+    t = c.press("1")
+    assert "נשלחת ל 2 נוסעים" in t                                 # group 1, shift A, not the driver
+    kind, texts, attempts = SENT[-1]
+    assert attempts == {"0503333331": 2, "0503333335": 1}             # not chosen yet -> 1
+    assert "יצאה לדרך" in texts["0503333331"]
+
+
+# ---- 9: settings -----------------------------------------------------------
+
+def test_settings_password_language_and_calls():
+    seed()
+    c = menu_call("0503333331")
     c.press("9")
-    assert "לכל העובדים הקישו 1" in c.press("2")
+    t = c.press("3")
+    assert "מספר השיחות" in t and "הסיסמה" in t
+    c.press("2")
+    c.press("12")
+    assert "בין 4 ל 8" in c.last
+    c.press("5555")
+    assert "הסיסמאות אינן זהות" in c.press("5556")
+    c.press("5555")
+    assert "שונתה" in c.press("5555")
+    assert emp("300")["pin"] == "5555"
+    c.press("9"); c.press("3")
+    t = c.press("3")
+    assert "For English, press 2" in t and "פאר אידיש דריקט 3" in t
+    t = c.press("2")
+    assert "The language was saved" in t and "To clock in, press 1" in t
+    assert "Hello Worker A1" in Call("0503333331").start()
+    c = Call("0503333331"); c.start(); c.press("9"); c.press("3"); c.press("1")
+    assert "up to 4 times" in c.press("4")
+    s = menu_call("0503333334"); s.press("9")
+    assert "מספר השיחות" not in s.press("3")                         # no shuttle group
 
 
-def test_record_command_format():
+def test_yiddish_menu():
     seed()
-    c = logged_in("0502222222")
+    with db.connect() as c:
+        c.execute("UPDATE employees SET language='yi' WHERE emp_number='300'")
+    t = Call("0503333331").start()
+    assert "צו מעלדן אריינקומען דריקט 1" in t
+
+
+# ---- 5: corrections ------------------------------------------------------
+
+def test_correction_request_and_approval():
+    seed()
+    at(2026, 11, 17, 2, 50)
+    c = menu_call("0503333331")
+    c.press("5"); c.press("1"); c.press("2")
+    assert "אינה תקינה" in c.press("2599")
+    assert "נשמרה ותועבר לאישור" in c.press("0225")
+    with db.connect() as conn:
+        k = conn.execute("SELECT * FROM corrections").fetchone()
+    client.post("/admin/corrections", data={"id": k["id"], "action": "approve"}, headers=AUTH)
+    a = attendance("300")
+    assert len(a) == 1 and db.parse(a[0]["clock_in"]).day == 16
+
+
+# ---- messages ------------------------------------------------------------
+
+def test_messages_still_work():
+    seed()
+    c = menu_call("0502222222")
     c.press("9"); c.press("2")
     t = c.press("1")
     f = t.split("=")[2].split(",")
-    assert f[2] == "record" and f[3] == "/8" and f[4].startswith("msg") and f[5] == "no" and f[9] == "180"
+    assert f[2] == "record" and f[3] == "/8"
+    assert "תישלח" in c.press("/8/m1.wav")
+    _time.sleep(0.2)
+    assert SENT and SENT[-1][0] == "plain"
+    w = menu_call("0503333331"); w.press("9")
+    t = w.press("1")
+    assert "הודעה חדשה, 1 מתוך 1, מאת Site Mgr A" in t and "f-/8/m1" in t
+    e = menu_call("0503333333"); e.press("9")
+    assert "record" in e.press("2")                                  # employee: message to managers only
 
 
-def test_onsite_manager_scope():
+# ---- admin and database ---------------------------------------------------
+
+def test_admin_pages_and_payroll():
     seed()
-    assert "תישלח לעובדים" in ext9_send("0502222222", "1")
-    m, names = recipients_of_last()
-    assert names == ["Driver A1", "No Phone", "Worker A1", "Worker A2"]
-    assert m["recording_path"] == "/8/msg123" and m["heb_date"]
-    ext9_send("0502222222", "2")
-    assert recipients_of_last()[1] == ["Driver A1", "No Phone", "Worker A1"]
-    ext9_send("0502222222", "3")
-    assert recipients_of_last()[1] == ["Worker A2"]
-    assert "אינו שייך למשמרת" in ext9_send("0502222222", "4", "302")
-    ext9_send("0502222222", "4", "301")
-    assert recipients_of_last()[1] == ["Worker A2"]
-    assert "העובד לא נמצא" in ext9_send("0502222222", "4", "999")
+    night("300", datetime(2026, 11, 17, 2, 20, tzinfo=db.TZ))
+    night("300", datetime(2026, 11, 16, 2, 45, tzinfo=db.TZ))
+    from admin import payroll_rows
+    y, m, _ = hebcal.from_gregorian(datetime(2026, 11, 17).date())
+    rows = {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}
+    assert rows["300"]["nights"] == 2 and rows["300"]["total"] == 110 + 76
+    assert client.get("/admin/").status_code == 401
+    for p in ("/admin/", "/admin/employees", "/admin/messages", "/admin/corrections", "/admin/shuttles",
+              f"/admin/employee/{emp('300')['id']}?hy={y}&hm={m}", "/admin/export.csv",
+              f"/admin/employees/{emp('400')['id']}"):
+        assert client.get(p, headers=AUTH).status_code == 200, p
+    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
+                                                             "role": "employee", "phone": "0503333331"})
+    assert b"already belongs" in r.data
+    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
+                                                             "role": "employee", "phone": "0509999999", "language": "yi"})
+    assert r.status_code == 302 and emp("500")["language"] == "yi"
 
 
-def test_tech_manager_reaches_everyone():
-    seed()
-    ext9_send("0501111111", "1")
-    assert len(recipients_of_last()[1]) == 7
-    ext9_send("0501111111", "4", "302")
-    assert recipients_of_last()[1] == ["Worker B1"]
-
-
-def test_employee_message_goes_to_both_managers_and_they_get_a_call():
-    seed()
-    t = ext9_send("0503333333", None)
-    assert "נשלחה למנהלים" in t
-    assert recipients_of_last()[1] == ["Site Mgr B", "Tech Mgr"]
-    import time
-    for _ in range(50):
-        if SENT_CALLS:
-            break
-        time.sleep(0.05)
-    assert set(SENT_CALLS[-1]) == {"0502222223", "0501111111"}
-    assert "הודעה חדשה מאת Worker B1" in SENT_CALLS[-1]["0501111111"]
-
-
-def test_employee_cannot_send_to_staff():
-    seed()
-    c = logged_in("0503333331")
-    c.press("9")
-    t = c.press("2")
-    assert "לעובד מסוים" not in t and "record" in t      # only "message to managers"
-
-
-def test_empty_recording_not_saved():
-    seed()
-    t = ext9_send("0503333331", None, rec="None")
-    assert "לא הוקלטה" in t
-    with db.connect() as c:
-        assert c.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
-
-
-def test_listening_plays_files_in_order_and_marks_heard():
-    seed()
-    ext9_send("0502222222", "1", rec="/8/first.wav")
-    ext9_send("0501111111", "4", "300", rec="/8/second.wav")
-    c = logged_in("0503333331")
-    c.press("9")
-    t = c.press("1")
-    assert "הודעה חדשה, 1 מתוך 2, מאת Site Mgr A" in t and "f-/8/first" in t
-    t = c.press("1")
-    assert "f-/8/first" in t and "מתוך" not in t                 # replay without header
-    t = c.press("2")
-    assert "2 מתוך 2, מאת Tech Mgr" in t and "f-/8/second" in t
-    assert "אין הודעות נוספות" in c.press("2")
-    c = logged_in("0503333331")
-    c.press("9")
-    assert "הודעה שמורה, 1 מתוך 2" in c.press("1")
-    other = logged_in("0503333333")
-    other.press("9")
-    assert "אין הודעות" in other.press("1")
-
-
-def test_lost_answer_repeats_same_question():
-    seed()
-    c = logged_in("0503333331")
-    before = c.last
-    c._send()                         # phone system re-sent without the answer
-    assert c.last == before
+def test_old_database_is_upgraded():
+    path = os.path.join(tempfile.mkdtemp(), "old.db")
+    con = sqlite3.connect(path)
+    con.executescript("""CREATE TABLE employees (id INTEGER PRIMARY KEY, emp_number TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+        phone TEXT, pin TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'employee', shift TEXT, shuttle_group INTEGER,
+        hourly_rate REAL, is_driver INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE attendance (id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL, clock_in TEXT NOT NULL,
+        clock_out TEXT, heb_year INTEGER NOT NULL, heb_month INTEGER NOT NULL, heb_day INTEGER NOT NULL, note TEXT);
+        INSERT INTO employees(emp_number,name,pin) VALUES ('1','Kept','1234');""")
+    con.close()
+    old = db.DB_PATH
+    db.DB_PATH = path
+    try:
+        db.init_db()
+        with db.connect() as c:
+            e = c.execute("SELECT * FROM employees").fetchone()
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(attendance)")}
+        assert e["name"] == "Kept" and e["language"] == "he" and {"exit_confirmed", "early_exit"} <= cols
+    finally:
+        db.DB_PATH = old
 
 
 def test_no_sms_anywhere():
     for f in ("ivr.py", "nbs.py", "admin.py"):
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), f), encoding="utf-8").read()
         assert "SendSms" not in src and "withSMS" not in src
-
-
-def test_payroll_and_admin_pages():
-    seed()
-    t0 = db.now().replace(hour=8, minute=0, second=0)
-    y, m, d = hebcal.from_gregorian(t0.date())
-    with db.connect() as c:
-        for num, hrs in (("300", 8), ("200", 10), ("100", 5)):
-            c.execute("INSERT INTO attendance(employee_id,clock_in,clock_out,heb_year,heb_month,heb_day) VALUES (?,?,?,?,?,?)",
-                      (emp_id(num), t0.isoformat(), (t0 + timedelta(hours=hrs)).isoformat(), y, m, d))
-        c.execute("INSERT INTO bonuses(employee_id,heb_year,heb_month,amount,note) VALUES (?,?,?,?,?)",
-                  (emp_id("300"), y, m, 50, "x"))
-    from admin import payroll_rows
-    rows = {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}
-    assert rows["300"]["total"] == 8 * 16 + 50 and rows["200"]["total"] == 250 and rows["100"]["total"] == 200
-    assert client.get("/admin/").status_code == 401
-    ext9_send("0502222222", "1")
-    for p in ("/admin/", "/admin/employees", "/admin/messages", "/admin/corrections", "/admin/shuttles",
-              f"/admin/employee/{emp_id('300')}", "/admin/export.csv", f"/admin/employees/{emp_id('400')}"):
-        assert client.get(p, headers=AUTH).status_code == 200, p
-    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
-                                                             "role": "employee", "is_driver": "on", "shuttle_group": "2"})
-    assert r.status_code == 302
-    with db.connect() as c:
-        assert c.execute("SELECT is_driver FROM employees WHERE emp_number='500'").fetchone()[0] == 1
 
 
 def test_hangup_notice():

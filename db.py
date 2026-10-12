@@ -9,7 +9,7 @@ TZ = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Jerusalem"))
 
 ROLES = ("employee", "onsite_manager", "tech_manager")
 MANAGER_ROLES = ("onsite_manager", "tech_manager")
-DEFAULT_RATES = {"employee": 16.0, "onsite_manager": 25.0, "tech_manager": None}
+DEFAULT_RATES = {"employee": 16.0, "onsite_manager": 25.0, "tech_manager": None}   # per hour of a regular session
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS employees (
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS employees (
     shuttle_group INTEGER,
     hourly_rate REAL,
     is_driver INTEGER NOT NULL DEFAULT 0,
+    shuttle_calls INTEGER,
+    language TEXT NOT NULL DEFAULT 'he',
     active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS attendance (
@@ -33,6 +35,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     heb_year INTEGER NOT NULL,
     heb_month INTEGER NOT NULL,
     heb_day INTEGER NOT NULL,
+    exit_confirmed INTEGER NOT NULL DEFAULT 0,
+    early_exit INTEGER NOT NULL DEFAULT 0,
     note TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -78,6 +82,19 @@ CREATE TABLE IF NOT EXISTS bonuses (
     amount REAL NOT NULL,
     note TEXT
 );
+CREATE TABLE IF NOT EXISTS uman (
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    heb_year INTEGER NOT NULL,
+    went INTEGER NOT NULL,
+    answered_at TEXT NOT NULL,
+    percent REAL,
+    nights TEXT,
+    PRIMARY KEY (employee_id, heb_year)
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS call_sessions (
     call_sid TEXT PRIMARY KEY,
     employee_id INTEGER,
@@ -98,9 +115,33 @@ def connect():
     return conn
 
 
+# Columns added after the first release. Existing databases get them on start-up.
+MIGRATIONS = {
+    "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'")],
+    "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0")],
+}
+
+
 def init_db():
     with connect() as c:
         c.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            have = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+            for name, decl in cols:
+                if name not in have:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
+def get_setting(key, default=None):
+    with connect() as c:
+        row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    with connect() as c:
+        c.execute("INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                  (key, str(value)))
 
 
 def now():
@@ -137,9 +178,12 @@ def get_session(call_sid):
     return {"employee_id": row["employee_id"], "data": json.loads(row["data"])}
 
 
-def save_session(call_sid, employee_id=None, **data):
+_KEEP = object()
+
+
+def save_session(call_sid, employee_id=_KEEP, **data):
     s = get_session(call_sid)
-    if employee_id is not None:
+    if employee_id is not _KEEP:
         s["employee_id"] = employee_id
     s["data"].update(data)
     with connect() as c:
