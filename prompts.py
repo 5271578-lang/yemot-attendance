@@ -15,7 +15,7 @@ WEEKDAYS = {
 }
 
 HE = {
-    "welcome": "שלום וברכה, הגעתם לקו כולל חצות אור הצדיק מגן אברהם",
+    "welcome": "שלום וברכה, הגעתם לקו כולל חצות, אור הצדיק, מגן אברהם",
     "enter_phone": "נא להקיש את מספר הטלפון שלכם, ובסיום סולמית",
     "enter_pin": "נא להקיש סיסמה, ובסיום סולמית",
     "bad_login": "הפרטים שהוקשו שגויים",
@@ -120,7 +120,7 @@ HE = {
 }
 
 EN = {
-    "welcome": "Hello, you have reached the line of Kollel Chatzos Ohr Hatzadik Magen Avraham",
+    "welcome": "Hello, you have reached the line of Kollel Chatzos, Ohr Hatzadik, Magen Avraham",
     "enter_phone": "Please enter your phone number, then press pound",
     "enter_pin": "Please enter your password, then press pound",
     "bad_login": "The details you entered are incorrect",
@@ -213,7 +213,7 @@ EN = {
 }
 
 YI = {
-    "welcome": "שלום וברכה, איר האט אנגעקלונגען צו דער ליניע פון כולל חצות אור הצדיק מגן אברהם",
+    "welcome": "שלום וברכה, איר האט אנגעקלונגען צו דער ליניע פון כולל חצות, אור הצדיק, מגן אברהם",
     "enter_phone": "ביטע דריקט אייער טעלעפאן נומער, און צום סוף די סולמית",
     "enter_pin": "ביטע דריקט אייער פאסווארט, און צום סוף די סולמית",
     "bad_login": "די פרטים זענען נישט ריכטיג",
