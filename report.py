@@ -2,7 +2,8 @@
 
 Settings (Render -> Environment):
   REPORT_EMAIL     where to send (one or more addresses, comma separated)
-  SMTP_USER        the Gmail address that sends it
+  SMTP_USER        the SMTP login (Gmail: the address; Brevo: the login shown under SMTP & API)
+  SMTP_FROM        the sender address shown on the e-mail (default: SMTP_USER). Must be a verified sender.
   SMTP_PASSWORD    a Gmail "app password" (16 letters) - not the normal Gmail password
   SMTP_HOST / SMTP_PORT   default smtp.gmail.com / 587
   REPORT_DAY       Hebrew day of the month to send on (default 28)
@@ -30,6 +31,7 @@ def settings():
     return {
         "to": [a.strip() for a in os.environ.get("REPORT_EMAIL", "").split(",") if a.strip()],
         "user": os.environ.get("SMTP_USER", ""),
+        "from": os.environ.get("SMTP_FROM", "") or os.environ.get("SMTP_USER", ""),
         "password": os.environ.get("SMTP_PASSWORD", "").replace(" ", ""),
         "host": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
         "port": int(os.environ.get("SMTP_PORT", 587)),
@@ -136,7 +138,7 @@ def send(hy, hm, until=None):
     subject, html, csv_text = build(hy, hm, until)
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = s["user"]
+    msg["From"] = s["from"]
     msg["To"] = ", ".join(s["to"])
     msg.set_content("סיכום החודש מצורף. לתצוגה מלאה יש לפתוח את המייל בתצוגת HTML.")
     msg.add_alternative(html, subtype="html")
