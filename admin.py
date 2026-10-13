@@ -121,7 +121,7 @@ def payroll():
 <div class="box"><b>Totals:</b> kollel {{ '{:,.0f}'.format(t.kollel) }} · Meron {{ '{:,.0f}'.format(t.meron) }} ·
 all together <b>{{ '{:,.0f}'.format(t.total) }}</b> · to Kollel Chatzos Jerusalem (Tzfas) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 Ohr Hatzadik <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
-<div class="muted">Meron (its nights' stipend, 35 a night, driving) → Jerusalem. 70/80% bonuses → Ohr Hatzadik. The rest: half each.</div></div>
+<div class="muted">Meron (35 a night, 60 for driving) → Jerusalem. 70/80% bonuses → Ohr Hatzadik. The rest: half each.</div></div>
 <p class="muted">Nightly: 80 × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30), +20 up to 10 minutes late,
 +30 before the start. A night without an exit counts until 7:30. Attendance % is by time only.
 70% → +200, 80% → +100 more. Below 2 whole nights or below 500 (without Meron) → no stipend (red 0).

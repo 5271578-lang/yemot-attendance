@@ -341,8 +341,8 @@ def _nights_for_minutes(need, lengths):
     return None
 
 
-# Who pays what: Meron (its nights' stipend + 35 + driver) -> Jerusalem; the 70/80% bonuses -> Ohr Hatzadik;
-# everything else (other nights, Uman, manual extras) -> half each.
+# Who pays what: Meron (35 a night + 60 for driving) -> Jerusalem; the 70/80% bonuses -> Ohr Hatzadik;
+# everything else (all the nights' stipend, Meron nights too, Uman, manual extras) -> half each.
 SPLIT_SHARE = 0.5
 
 
@@ -351,12 +351,11 @@ def payer_split(s):
     if s["total"] is None:
         return None
     if s["eligible"]:
-        shared = round(s["stipend"] - s["meron_nightly"] - s["percent_bonus"], 2)
-        meron = round(s["meron_nightly"] + s["meron"] + s["driver"], 2)
+        shared = round(s["stipend"] - s["percent_bonus"], 2)
         bonus = s["percent_bonus"]
     else:
         shared, bonus = 0.0, 0
-        meron = round(s["meron"] + s["driver"], 2)
+    meron = round(s["meron"] + s["driver"], 2)
     return {
         "kollel": round(shared + bonus, 2),
         "meron": meron,
