@@ -17,6 +17,7 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ROLE_NAMES = {"employee": "Employee", "onsite_manager": "On-Site Manager", "tech_manager": "Technical Manager"}
 LANGS = {"he": "Hebrew", "en": "English", "yi": "Yiddish"}
+DEFAULT_PIN = "1480"            # initial password for every new avrech; he changes it with 9 -> 2
 
 
 @bp.before_request
@@ -253,7 +254,7 @@ EMP_FORM = """<form method="post">
 <input name="emp_number" placeholder="Employee no." value="{{ e.emp_number if e else '' }}" required>
 <input name="name" placeholder="Name" value="{{ e.name if e else '' }}" required>
 <input name="phone" placeholder="Phone (sign-in + caller ID)" value="{{ (e.phone or '') if e else '' }}">
-<input name="pin" placeholder="Password (4-8 digits)" value="{{ e.pin if e else '' }}" required pattern="[0-9]{4,8}" title="4-8 digits">
+<input name="pin" placeholder="Password (empty = 1480)" value="{{ e.pin if e else '' }}" pattern="[0-9]{4,8}" title="4-8 digits. Empty = the default 1480">
 <select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
 <select name="shuttle_group"><option value="">No shuttle</option>{% for g in (1,2) %}<option value="{{g}}" {% if e and e.shuttle_group==g %}selected{% endif %}>Shuttle Group {{g}}</option>{% endfor %}</select>
@@ -267,7 +268,7 @@ EMP_FORM = """<form method="post">
 
 def emp_values(form):
     return (form["emp_number"].strip(), form["name"].strip(), form.get("phone", "").strip() or None,
-            form["pin"].strip(), form["role"], form.get("shift", "").strip() or None,
+            form.get("pin", "").strip() or DEFAULT_PIN, form["role"], form.get("shift", "").strip() or None,
             int(form["shuttle_group"]) if form.get("shuttle_group") else None,
             float(form["hourly_rate"]) if form.get("hourly_rate") else None,
             1 if form.get("is_driver") else 0,

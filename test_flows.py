@@ -511,9 +511,9 @@ def test_admin_pages_and_payroll():
     r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
                                                              "role": "employee", "phone": "0503333331"})
     assert b"already belongs" in r.data
-    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
+    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "",
                                                              "role": "employee", "phone": "0509999999", "language": "yi"})
-    assert r.status_code == 302 and emp("500")["language"] == "yi"
+    assert r.status_code == 302 and emp("500")["language"] == "yi" and emp("500")["pin"] == "1480"
 
 
 def test_old_database_is_upgraded():
