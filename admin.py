@@ -11,6 +11,7 @@ import db
 import hebcal
 import nbs
 import schedule
+import report
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
@@ -99,7 +100,9 @@ def payroll():
 <h1>{{ title }}</h1>
 <p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
-<a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">Download CSV</a></p>
+<a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">Download CSV</a> ·
+<form method="post" action="{{ url_for('admin.send_report', hy=hy, hm=hm) }}" style="display:inline">
+<button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th class="right">Nights</th><th class="right">Whole</th>
 <th class="right">Attendance</th><th class="right">Nightly</th><th class="right">70/80%</th><th class="right">Extras</th>
 <th class="right">Stipend</th><th class="right">Meron</th><th class="right">Driver</th><th class="right">Total ₪</th></tr>
@@ -121,7 +124,15 @@ def payroll():
 Meron: 35 a night. Driver: 60 a night. Extras = Uman nights and bonuses added by hand.</p>"""
     title = f"{hebcal.month_name(hm, hy)} {hy}"
     return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last,
-                title=title, roles=ROLE_NAMES)
+                title=title, roles=ROLE_NAMES, msg=request.args.get("msg"))
+
+
+@bp.route("/send-report", methods=["POST"])
+def send_report():
+    hy, hm = month_args()
+    ok, info = report.send(hy, hm)
+    msg = "The summary was e-mailed." if ok else f"Could not send: {info}"
+    return redirect(url_for("admin.payroll", hy=hy, hm=hm, msg=msg))
 
 
 @bp.route("/export.csv")

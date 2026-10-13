@@ -12,6 +12,7 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test.db")
 os.environ["ADMIN_PASSWORD"] = "pw"
 os.environ["IVR_SECRET"] = "s3cret"
 os.environ.pop("NBS_TOKEN", None)
+os.environ["DISABLE_REPORT_THREAD"] = "1"
 
 import app as appmod  # noqa: E402
 import db  # noqa: E402
@@ -673,6 +674,35 @@ def test_removed_after_two_counted_months():
     assert b"removed (2 months)" in r.data
     client.post(f"/admin/employees/{emp('303')['id']}/restore", headers=AUTH)
     assert "נמחקת" not in Call("0503333334").start()
+
+
+def test_monthly_email_report():
+    import report
+    seed()
+    g = hebcal.to_gregorian
+    days = [g(5787, 8, d) for d in range(2, 12)]
+    full_nights("302", days)
+    full_nights("300", days[:8], meron=True)
+    subject, html, csv_text = report.build(5787, 8)
+    assert "חשוון 5787" in subject and 'dir="rtl"' in html
+    assert "Worker A1" in html and "Worker B1" in html and "מתחת למינימום" in html
+    assert "1460" in html.replace(",", "")                          # 880 + 300 + 280 Meron
+    assert csv_text.startswith("\ufeff") and "Worker A1" in csv_text
+    sent = []
+    report.send = lambda hy, hm, until=None: (sent.append((hy, hm, until)) or (True, "sent"))
+    report.enabled = lambda: True
+    at(g(5787, 8, 27).year, g(5787, 8, 27).month, g(5787, 8, 27).day, 9, 0)
+    assert report.run_once() is None and not sent                    # 27th: not yet
+    d28 = g(5787, 8, 28)
+    at(d28.year, d28.month, d28.day, 7, 0)
+    assert report.run_once() is None                                  # before 8:00
+    at(d28.year, d28.month, d28.day, 8, 5)
+    assert report.run_once() is True and sent[-1][:2] == (5787, 8)
+    assert report.run_once() is None and len(sent) == 1              # only once a month
+    at(d28.year, d28.month, d28.day + 1, 9, 0)
+    assert report.run_once() is None and len(sent) == 1
+    r = client.post("/admin/send-report?hy=5787&hm=8", headers=AUTH)
+    assert r.status_code == 302 and len(sent) == 2
 
 
 def test_hangup_notice():

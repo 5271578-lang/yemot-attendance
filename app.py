@@ -19,8 +19,11 @@ from flask import Flask, redirect  # noqa: E402
 import db  # noqa: E402
 from admin import bp as admin_bp  # noqa: E402
 from ivr import bp as ivr_bp  # noqa: E402
+import report  # noqa: E402
 
 db.init_db()
+if os.environ.get("DISABLE_REPORT_THREAD") != "1":
+    report.start_background()
 
 app = Flask(__name__)
 app.register_blueprint(ivr_bp)
