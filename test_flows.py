@@ -687,6 +687,14 @@ def test_monthly_email_report():
     assert "חשוון 5787" in subject and 'dir="rtl"' in html
     assert "Worker A1" in html and "Worker B1" in html and "מתחת למינימום" in html
     assert "1460" in html.replace(",", "")                          # 880 + 300 + 280 Meron
+    # 300: 8 Meron nights (880 stipend, all on Meron nights) + 280 Meron + 300 bonus
+    # 302: 10 nights, not Meron: 1100 + 300 bonus
+    sp = schedule.payer_split(schedule.month_summary(emp("300"), 5787, 8))
+    assert sp == {"kollel": 300, "meron": 1160, "total": 1460, "jerusalem": 1160, "ohr_hatzadik": 300}
+    t = report.totals(report.rows_for(5787, 8))
+    assert t["kollel"] == 300 + 1400 and t["meron"] == 1160 and t["total"] == 2860
+    assert t["jerusalem"] == 1160 + 550 and t["ohr_hatzadik"] == 300 + 550 + 300
+    assert "לשלוח לכולל חצות ירושלים" in html and "1,710" in html and "1,150" in html
     assert csv_text.startswith("\ufeff") and "Worker A1" in csv_text
     sent = []
     report.send = lambda hy, hm, until=None: (sent.append((hy, hm, until)) or (True, "sent"))

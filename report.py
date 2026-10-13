@@ -51,51 +51,82 @@ def rows_for(hy, hm, until=None):
     return out
 
 
+def totals(rows):
+    keys = ("kollel", "meron", "total", "jerusalem", "ohr_hatzadik")
+    out = dict.fromkeys(keys, 0.0)
+    for _e, s in rows:
+        sp = schedule.payer_split(s)
+        if sp:
+            for k in keys:
+                out[k] += sp[k]
+    return {k: round(v, 2) for k, v in out.items()}
+
+
 def build(hy, hm, until=None):
     """(subject, html, csv_text) for one Hebrew month."""
     month = f"{hebcal.month_name(hm, hy, 'he')} {hy}"
     rows = rows_for(hy, hm, until)
     upto = f" (נכון ל{hebcal.format_date(until, 'he')})" if until else ""
-    paid = [(e, s) for e, s in rows if s["total"]]
-    total = round(sum(s["total"] or 0 for _, s in rows), 2)
-    meron = sum(s["meron"] for _, s in rows)
-    driver = sum(s["driver"] for _, s in rows)
+    t = totals(rows)
     not_eligible = [e["name"] for e, s in rows if e["role"] == "employee" and not s["eligible"]]
     removed = [e["name"] for e, _ in rows if schedule.removed_by_rule(e, until or hebcal.month_range(hy, hm)[1])]
 
     th = 'style="background:#e8edf3;padding:6px 8px;border:1px solid #c9d1db;text-align:right"'
     td = 'style="padding:5px 8px;border:1px solid #dde3ea;text-align:right"'
+    tdb = 'style="padding:6px 10px;border:1px solid #dde3ea;text-align:right;font-weight:bold"'
+    money = lambda x: f"{x:,.0f}"
+
+    summary = f"""<table style="border-collapse:collapse;margin:8px 0 16px" dir="rtl">
+<tr><td {td}>סך הכל כולל</td><td {tdb}>{money(t["kollel"])} ש"ח</td></tr>
+<tr><td {td}>סך הכל מירון</td><td {tdb}>{money(t["meron"])} ש"ח</td></tr>
+<tr><td {td}>סך הכל, הכל ביחד</td><td {tdb}>{money(t["total"])} ש"ח</td></tr>
+<tr><td {td}>לשלוח לכולל חצות ירושלים, סניף צפת</td><td {tdb}>{money(t["jerusalem"])} ש"ח</td></tr>
+<tr><td {td}>הוצאות כולל חצות אור הצדיק מגן אברהם</td><td {tdb}>{money(t["ohr_hatzadik"])} ש"ח</td></tr>
+</table>"""
+
     lines = []
     for e, s in rows:
-        stipend = f"{s['stipend']:.0f}" if s["eligible"] else f'<span style="color:#b00020">0</span> ({s["stipend"]:.0f})'
-        total_cell = "" if s["total"] is None else f"{s['total']:.0f}"
+        sp = schedule.payer_split(s) or {"kollel": 0, "meron": 0, "total": 0}
+        hours = s["present_min"] / 60
+        kollel = money(sp["kollel"]) if s["eligible"] else f'<span style="color:#b00020">0</span>'
         lines.append(
-            f"<tr><td {td}>{escape(e['name'])}</td><td {td}>{s['nights']}</td><td {td}>{s['whole']}</td>"
-            f"<td {td}>{round(s['percent'] * 100)}%</td><td {td}>{stipend}</td><td {td}>{s['meron']}</td>"
-            f"<td {td}>{s['driver']}</td><td {td}><b>{total_cell}</b></td></tr>")
+            f"<tr><td {td}>{escape(e['name'])}</td><td {td}>{round(s['percent'] * 100)}%</td>"
+            f"<td {td}>{hours:.1f}</td><td {td}>{s['nights']}</td><td {td}>{s['whole']}</td><td {td}>{s['early']}</td>"
+            f"<td {td}>{s['meron_nights']}</td><td {td}>{s['percent_bonus']}</td>"
+            f"<td {td}>{kollel}</td><td {td}>{money(sp['meron'])}</td><td {td}><b>{money(sp['total'])}</b></td></tr>")
+
     html = f"""<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <h2 style="color:#1f3a5f;margin:0 0 8px">סיכום חודש {month}{upto}</h2>
-<p>סך הכל לתשלום: <b>{total:,.0f} ש"ח</b>, ל־{len(paid)} אברכים. מתוך זה מירון {meron:,.0f} ש"ח והסעות {driver:,.0f} ש"ח.</p>
+{summary}
+<h3 style="color:#1f3a5f;margin:12px 0 6px">נוכחות לפי אברך</h3>
 <table style="border-collapse:collapse" dir="rtl">
-<tr><th {th}>שם</th><th {th}>לילות</th><th {th}>שלמים</th><th {th}>נוכחות</th><th {th}>מלגה</th>
-<th {th}>מירון</th><th {th}>נהיגה</th><th {th}>סה"כ</th></tr>
+<tr><th {th}>שם</th><th {th}>נוכחות</th><th {th}>שעות</th><th {th}>לילות</th><th {th}>שלמים</th>
+<th {th}>זריזין מקדימים</th><th {th}>לילות מירון</th><th {th}>בונוס אחוזים</th>
+<th {th}>כולל</th><th {th}>מירון</th><th {th}>סה"כ</th></tr>
 {''.join(lines)}
 </table>
-{"<p><b>מתחת למינימום החודש:</b> " + escape(", ".join(not_eligible)) + "</p>" if not_eligible else ""}
+<p style="color:#555">כולל = מלגת הלילות שאינם מירון, תוספות ובונוס אחוזים. מירון = מלגת לילות מירון, 35 ש"ח ללילה ונהיגה.
+חלוקה: מירון כולו על כולל חצות ירושלים. בונוס האחוזים כולו על כולל אור הצדיק. השאר חצי חצי.</p>
+{"<p><b>מתחת למינימום החודש (0 בעמודת כולל):</b> " + escape(", ".join(not_eligible)) + "</p>" if not_eligible else ""}
 {"<p><b>נמחקים לפי כללי הכולל (חודשיים ללא מלגה):</b> " + escape(", ".join(removed)) + "</p>" if removed else ""}
-<p style="color:#777">מצורף קובץ לאקסל עם כל הפרטים. הפירוט המלא בממשק הניהול.</p>
+<p style="color:#777">מצורף קובץ לאקסל עם כל הפרטים.</p>
 </div>"""
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["מספר", "שם", "לילות", "לילות שלמים", "זריזין", "אחוז נוכחות", "לילות (ש\"ח)", "תוספת 70/80",
-                "תוספות ידניות", "מלגה", "עומד במינימום", "לילות מירון", "מירון", "הסעות", "נהיגה", "סה\"כ"])
+    w.writerow(["מספר", "שם", "אחוז נוכחות", "שעות", "לילות", "לילות שלמים", "זריזין מקדימים", "לילות מירון",
+                "בונוס אחוזים", "עומד במינימום", "כולל", "מירון", "סה\"כ", "חלק ירושלים", "חלק אור הצדיק"])
     for e, s in rows:
-        w.writerow([e["emp_number"], e["name"], s["nights"], s["whole"], s["early"], round(s["percent"] * 100, 1),
-                    round(s["base"] + s["timing"], 2), s["percent_bonus"], s["extras"], s["stipend"],
-                    "כן" if s["eligible"] else "לא", s["meron_nights"], s["meron"], s["drives"], s["driver"],
-                    s["total"] if s["total"] is not None else ""])
-    return f"סיכום כולל חצות - {month}", html, "﻿" + buf.getvalue()
+        sp = schedule.payer_split(s) or {}
+        w.writerow([e["emp_number"], e["name"], round(s["percent"] * 100, 1), round(s["present_min"] / 60, 1),
+                    s["nights"], s["whole"], s["early"], s["meron_nights"], s["percent_bonus"],
+                    "כן" if s["eligible"] else "לא", sp.get("kollel", ""), sp.get("meron", ""), sp.get("total", ""),
+                    sp.get("jerusalem", ""), sp.get("ohr_hatzadik", "")])
+    w.writerow([])
+    for label, k in (("סך הכל כולל", "kollel"), ("סך הכל מירון", "meron"), ("סך הכל הכל ביחד", "total"),
+                     ("לשלוח לכולל חצות ירושלים", "jerusalem"), ("הוצאות כולל אור הצדיק", "ohr_hatzadik")):
+        w.writerow(["", label, t[k]])
+    return f"סיכום כולל חצות - {month}", html, "\ufeff" + buf.getvalue()
 
 
 def send(hy, hm, until=None):

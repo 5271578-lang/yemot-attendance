@@ -278,6 +278,7 @@ def month_summary(emp, hy, hm, until=None):
     stipend = round(nightly + percent_bonus + extras, 2)          # without Meron
     eligible = whole >= MIN_WHOLE_NIGHTS and stipend >= MIN_STIPEND
     meron_nights = sum(1 for n in nights if n["meron"])
+    meron_nightly = round(sum(n["total"] for n in nights if n["meron"]), 2)
     meron = meron_nights * MERON_BONUS
     drives = len(driver_nights(emp["id"], first, last))
     driver = drives * DRIVER_BONUS
@@ -287,7 +288,7 @@ def month_summary(emp, hy, hm, until=None):
         "percent": pct, "present_min": present, "possible_min": possible, "held": len(held),
         "base": base, "timing": timing, "percent_bonus": percent_bonus, "extras": round(extras, 2),
         "stipend": stipend, "eligible": eligible, "meron_nights": meron_nights, "meron": meron,
-        "drives": drives, "driver": driver, "rate_ok": rate_ok,
+        "drives": drives, "driver": driver, "rate_ok": rate_ok, "meron_nightly": meron_nightly,
         "total": round((stipend if eligible else 0) + meron + driver, 2) if rate_ok else None,
     }
 
@@ -338,6 +339,31 @@ def _nights_for_minutes(need, lengths):
         if got >= need:
             return i
     return None
+
+
+# Who pays what: Meron (its nights' stipend + 35 + driver) -> Jerusalem; the 70/80% bonuses -> Ohr Hatzadik;
+# everything else (other nights, Uman, manual extras) -> half each.
+SPLIT_SHARE = 0.5
+
+
+def payer_split(s):
+    """For one month_summary: kollel part, Meron part, and what each donor pays."""
+    if s["total"] is None:
+        return None
+    if s["eligible"]:
+        shared = round(s["stipend"] - s["meron_nightly"] - s["percent_bonus"], 2)
+        meron = round(s["meron_nightly"] + s["meron"] + s["driver"], 2)
+        bonus = s["percent_bonus"]
+    else:
+        shared, bonus = 0.0, 0
+        meron = round(s["meron"] + s["driver"], 2)
+    return {
+        "kollel": round(shared + bonus, 2),
+        "meron": meron,
+        "total": round(shared + bonus + meron, 2),
+        "jerusalem": round(shared * SPLIT_SHARE + meron, 2),
+        "ohr_hatzadik": round(shared * (1 - SPLIT_SHARE) + bonus, 2),
+    }
 
 
 def counted_months_before(hy, hm, n):
