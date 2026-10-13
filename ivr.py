@@ -558,6 +558,16 @@ def ext4_choice(r, answer):
         return start_listening(r, emp)
     if is_manager(emp):
         return send_menu(r)
+    if emp["is_driver"] and emp["shuttle_group"]:
+        return r.ask("driver_send_choice", r.t("driver_send_menu"), allowed=["1", "2"])
+    record_message(r, {"type": "managers"})
+
+
+@step
+def driver_send_choice(r, answer):
+    emp = employee(r)
+    if answer == "2" and emp["is_driver"] and emp["shuttle_group"]:
+        return record_message(r, {"type": "driver_group"})
     record_message(r, {"type": "managers"})
 
 
@@ -720,6 +730,13 @@ def resolve_recipients(sender, target):
         onsite = [e for e in everyone if e["role"] == "onsite_manager"]
         same_shift = [e for e in onsite if e["shift"] and e["shift"] == sender["shift"]]
         return tech + (same_shift or onsite)
+    if t == "driver_group":
+        if not (sender["is_driver"] and sender["shuttle_group"]):
+            return []
+        group = [e for e in everyone if e["shuttle_group"] == sender["shuttle_group"]
+                 and (not sender["shift"] or e["shift"] == sender["shift"])]
+        drivers = [e for e in everyone if e["is_driver"] and e not in group]
+        return group + drivers
     if not is_manager(sender):
         return []
     if sender["role"] == "tech_manager":
@@ -738,6 +755,8 @@ def resolve_recipients(sender, target):
 
 
 def target_label(target, recipients):
+    if target["type"] == "driver_group":
+        return "קבוצת ההסעה של הנהג והנהגים"
     return {"shift": "כל העובדים", "managers": "המנהלים"}.get(target["type"]) or (
         f"קבוצת הסעה {target['group']}" if target["type"] == "group" else
         (recipients[0]["name"] if recipients else "עובד"))
@@ -775,7 +794,7 @@ def recorded(r, answer, target):
         c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)",
                       [(msg_id, e["id"]) for e in recipients])
     if NOTIFY_BY_CALL and nbs.enabled():
-        by_tzintuk = target["type"] in ("shift", "group")
+        by_tzintuk = target["type"] in ("shift", "group", "driver_group")
         threading.Thread(target=notify, args=(msg_id, by_tzintuk), daemon=True).start()
     r.say(r.t("saved_to_managers" if target["type"] == "managers" else "saved_to_employees"))
     main_menu(r)

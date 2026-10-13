@@ -451,6 +451,28 @@ def test_group_message_uses_tzintuk():
     assert SENT and SENT[-1][0] == "plain" and len(calls) == 1
 
 
+def test_driver_message_to_his_group_and_drivers():
+    seed()
+    with db.connect() as c:
+        c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,is_driver,shuttle_calls) "
+                  "VALUES ('401','Driver B2','0504444445','4445','employee','B',2,1,1)")
+    rung = []
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
+    c = menu_call("0504444444")
+    c.press("4")
+    assert "לקבוצת ההסעה שלך ולנהגים הקישו 2" in c.press("2")
+    assert "record" in c.press("2")
+    assert "תישלח" in c.press("/8/d.wav")
+    with db.connect() as conn:
+        names = sorted(x["name"] for x in conn.execute(
+            "SELECT e.name FROM message_recipients r JOIN employees e ON e.id=r.employee_id"))
+    assert names == ["Driver B2", "New Rider", "Worker A1"]          # group 1 in shift A + the other driver
+    _time.sleep(0.2)
+    assert rung and sorted(rung[-1]) == ["0503333331", "0503333335", "0504444445"]
+    w = menu_call("0503333331"); w.press("4")
+    assert "record" in w.press("2")                                  # not a driver: managers only
+
+
 def test_messages_still_work():
     seed()
     rung = []
