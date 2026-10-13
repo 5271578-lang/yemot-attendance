@@ -124,7 +124,7 @@ def test_protocol_format():
     msgs, fields = t[len("read="):].split("=")
     assert msgs.startswith("t-") and ".t-" in msgs
     f = fields.split(",")
-    assert len(f) == 14 and f[9] == "1.2.4.5.9.*" and f[11] == "Ok" and f[12] == "None"
+    assert len(f) == 14 and f[9] == "1.2.4.5.6.9.*" and f[11] == "Ok" and f[12] == "None"
 
 
 def test_unknown_phone_signs_in_with_phone_and_password():
@@ -189,26 +189,26 @@ def test_new_rider_chooses_alert_calls_once():
 def test_clock_in_uses_call_start_time():
     seed()
     at(2026, 11, 17, 2, 20)
-    c = menu_call("0503333331")
+    c = menu_call("0503333334")
     at(2026, 11, 17, 2, 23)                                         # pressed 1 three minutes later
     t = c.press("1")
     assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 20 דקות" in t and c.hung_up
-    assert db.parse(attendance("300")[0]["clock_in"]).minute == 20
-    assert "כבר נרשמה" in menu_call("0503333331").press("1")
+    assert db.parse(attendance("303")[0]["clock_in"]).minute == 20
+    assert "כבר נרשמה" in menu_call("0503333334").press("1")
 
 
 def test_next_night_confirms_default_exit():
     seed()
     at(2026, 11, 16, 2, 25)
-    menu_call("0503333331").press("1")
+    menu_call("0503333334").press("1")
     at(2026, 11, 17, 2, 28)
-    c = menu_call("0503333331")
+    c = menu_call("0503333334")
     t = c.press("1")
     assert "היציאה שלך אתמול מוגדרת לשעה 7 ו 30 דקות" in t and "ארבע ספרות" in t
     at(2026, 11, 17, 2, 31)
     t = c.press("1")
     assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 28 דקות" in t
-    a = attendance("300")
+    a = attendance("303")
     assert a[0]["clock_out"] and db.parse(a[0]["clock_out"]).hour == 7 and a[0]["exit_confirmed"] == 1
     assert len(a) == 2 and db.parse(a[1]["clock_in"]).minute == 28
 
@@ -216,9 +216,9 @@ def test_next_night_confirms_default_exit():
 def test_next_night_changes_exit_time():
     seed()
     at(2026, 11, 16, 2, 25)
-    menu_call("0503333331").press("1")
+    menu_call("0503333334").press("1")
     at(2026, 11, 17, 2, 25)
-    c = menu_call("0503333331")
+    c = menu_call("0503333334")
     c.press("1")
     assert "אינה תקינה" in c.press("0215")                          # before that night's clock in
     t = c.press("0645")
@@ -227,30 +227,30 @@ def test_next_night_changes_exit_time():
     c.press("0650")
     t = c.press("1")
     assert "שעת היציאה נשמרה" in t and "הכניסה שלך עודכנה" in t
-    a = attendance("300")[0]
+    a = attendance("303")[0]
     assert db.parse(a["clock_out"]).strftime("%H:%M") == "06:50"
 
 
 def test_older_nights_are_not_asked_and_day_name_is_used():
     seed()
     at(2026, 11, 12, 2, 25)
-    menu_call("0503333331").press("1")
+    menu_call("0503333334").press("1")
     at(2026, 11, 13, 2, 25)
     menu_call("0503333332").press("1")
     at(2026, 11, 17, 2, 25)
-    t = menu_call("0503333331").press("1")
+    t = menu_call("0503333334").press("1")
     assert "היציאה שלך ביום חמישי" in t
 
 
 def test_early_exit_then_next_night_shows_it():
     seed()
     at(2026, 11, 16, 2, 25)
-    menu_call("0503333331").press("1")
+    menu_call("0503333334").press("1")
     at(2026, 11, 16, 5, 10)
-    t = menu_call("0503333331").press("2")
+    t = menu_call("0503333334").press("2")
     assert "היציאה החריגה נרשמה בשעה 5 ו 10 דקות" in t
     at(2026, 11, 17, 2, 25)
-    t = menu_call("0503333331").press("1")
+    t = menu_call("0503333334").press("1")
     assert "מוגדרת לשעה 5 ו 10 דקות" in t
     t = menu_call("0503333332").press("2")
     assert "לא נמצאה כניסה" in t and "לעדכון כניסה" in t
@@ -425,7 +425,7 @@ def test_driver_shuttle_also_clocks_in():
     t = c.press("1")
     assert "נשלחת ל" in t and "היציאה שלך אתמול" in t               # same rules as key 1
     t = c.press("1")
-    assert "הכניסה שלך עודכנה בהצלחה לשעה 0 ו 50 דקות" in t
+    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 25 דקות" in t and "נסיעה למירון" in t
     assert len(attendance("400")) == 2
     SENT.clear()
     for h, m in ((0, 40), (1, 26), (18, 0)):                         # outside 0:45-1:25: nothing is sent
@@ -482,7 +482,8 @@ def test_admin_pages_and_payroll():
     from admin import payroll_rows
     y, m, _ = hebcal.from_gregorian(datetime(2026, 11, 17).date())
     rows = {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}
-    assert rows["300"]["nights"] == 2 and rows["300"]["total"] == 110 + 76
+    assert rows["300"]["nights"] == 2 and rows["300"]["stipend"] == 110 + 76 + 300    # 97.5% -> +200 +100
+    assert not rows["300"]["eligible"] and rows["300"]["total"] == 0          # 1 whole night, below 500
     assert client.get("/admin/").status_code == 401
     for p in ("/admin/", "/admin/employees", "/admin/messages", "/admin/corrections", "/admin/shuttles",
               f"/admin/employee/{emp('300')['id']}?hy={y}&hm={m}", "/admin/export.csv",
@@ -549,6 +550,104 @@ def test_uman_not_asked_in_cheshvan():
     seed()
     at(2026, 10, 12, 2, 0)                                           # 1 Cheshvan 5787
     assert "אומן" not in Call("0503333331").start()
+
+
+def test_meron_rider_recorded_at_2_25():
+    seed()
+    at(2026, 11, 17, 0, 50)                                          # in the shuttle window
+    t = menu_call("0503333331").press("1")
+    assert "לשעה 2 ו 25 דקות" in t and "נסיעה למירון" in t
+    a = attendance("300")[0]
+    assert a["meron"] == 1 and db.parse(a["actual_in"]).strftime("%H:%M") == "00:50"
+    at(2026, 11, 17, 1, 40)                                          # after the window: 2:25, no Meron
+    n = Call("0503333335"); n.start(); n.press("2")                  # (new rider first picks alert calls)
+    t = n.press("1")
+    assert "לשעה 2 ו 25 דקות" in t and "מירון" not in t
+    at(2026, 11, 17, 2, 40)                                          # after 2:25: the real time
+    t = menu_call("0503333332").press("1")
+    assert "לשעה 2 ו 40 דקות" in t
+    at(2026, 12, 6, 2, 0)                                            # bein hazmanim: window 1:45-2:25, recorded 3:25
+    c = menu_call("0503333331")
+    assert "היציאה שלך" in c.press("1")                               # the earlier night is asked about first
+    t = c.press("1")
+    assert "לשעה 3 ו 25 דקות" in t and "נסיעה למירון" in t
+    at(2026, 11, 17, 1, 35)                                          # not a rider: real time
+    assert "לשעה 1 ו 35 דקות" in menu_call("0503333334").press("1")
+
+
+def month_of(d):
+    y, m, _ = hebcal.from_gregorian(d)
+    return y, m
+
+
+def full_nights(num, days, meron=False):
+    with db.connect() as c:
+        for d in days:
+            cin = datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=2, minute=25)
+            y, m, dd = hebcal.from_gregorian(d)
+            c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, exit_confirmed, meron) "
+                      "VALUES (?,?,?,?,?,1,?)", (emp(num)["id"], cin.isoformat(), y, m, dd, int(meron)))
+
+
+def test_month_rules():
+    seed()
+    g = hebcal.to_gregorian
+    days = [g(5787, 8, d) for d in range(2, 12)]                     # 10 nights in Cheshvan, none bein hazmanim
+    full_nights("302", days)                                          # someone at every night: 10 held
+    full_nights("300", days[:8], meron=True)                          # 80%, all Meron
+    full_nights("301", days[:7])                                      # 70%
+    full_nights("303", days[:4])                                      # 40%: 440 < 500 -> nothing
+    s = schedule.month_summary(emp("300"), 5787, 8)
+    assert s["whole"] == 8 and s["early"] == 8 and round(s["percent"], 2) == 0.8
+    assert s["percent_bonus"] == 300 and s["stipend"] == 8 * 110 + 300 and s["eligible"]
+    assert s["meron"] == 8 * 35 and s["total"] == 880 + 300 + 280
+    s = schedule.month_summary(emp("301"), 5787, 8)
+    assert s["percent_bonus"] == 200 and s["total"] == 770 + 200
+    s = schedule.month_summary(emp("303"), 5787, 8)
+    assert not s["eligible"] and s["total"] == 0 and s["stipend"] == 440
+    with db.connect() as c:                                           # driver: 60 a night
+        for d in days[:3]:
+            c.execute("INSERT INTO shuttle_runs(driver_id, created_at, shuttle_group, recipients, status) VALUES (?,?,1,'x','sent')",
+                      (emp("400")["id"], datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=1).isoformat()))
+    assert schedule.month_summary(emp("400"), 5787, 8)["driver"] == 180
+
+
+def test_status_key_6():
+    seed()
+    g = hebcal.to_gregorian
+    days = [g(5787, 8, d) for d in range(2, 12)]
+    full_nights("302", days)
+    full_nights("300", days[:6], meron=True)
+    when = g(5787, 8, 11)
+    at(when.year, when.month, when.day, 9, 0)
+    t = menu_call("0503333331").press("6")
+    assert "היית נוכח 6 לילות, מתוכם 6 לילות שלמים, ו 6 לילות זריזין מקדימים" in t
+    assert "60 אחוז" in t and "660 שקלים" in t
+    assert "להגעה ל 70 אחוז חסרות לך עוד 5 שעות" in t and "להגעה ל 80 אחוז חסרות לך עוד 10 שעות" in t
+    assert "מינימום" not in t
+    assert "למירון 6 לילות" in t and "עומדת על 870 שקלים" in t
+    t = menu_call("0503333334").press("6")
+    assert "למינימום המלגה חסרים לך עוד 5 לילות שלמים" in t and "מירון" not in t   # 500 / 110
+
+
+def test_removed_after_two_counted_months():
+    seed()
+    g = hebcal.to_gregorian
+    with db.connect() as c:
+        c.execute("UPDATE employees SET joined_on='2026-01-01'")
+    full_nights("302", [g(5786, 12, 2), g(5786, 2, 2)])               # kollel was held in Adar and Iyar
+    for d in range(2, 8):                                              # 300: 6 full nights in Adar = eligible
+        full_nights("300", [g(5786, 12, d)])
+    when = g(5786, 3, 5)                                               # Sivan: counted months Iyar and Adar (Nisan skipped)
+    at(when.year, when.month, when.day, 1, 0)
+    t = Call("0503333334").start()
+    assert "נמחקת מהמערכת" in t and t.endswith("go_to_folder=hangup")
+    assert "נמחקת" not in Call("0503333331").start()                   # was eligible in Adar
+    assert "נמחקת" not in Call("0502222222").start()                   # managers are never removed
+    r = client.get("/admin/employees", headers=AUTH)
+    assert b"removed (2 months)" in r.data
+    client.post(f"/admin/employees/{emp('303')['id']}/restore", headers=AUTH)
+    assert "נמחקת" not in Call("0503333334").start()
 
 
 def test_hangup_notice():

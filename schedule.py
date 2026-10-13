@@ -24,6 +24,19 @@ BHZ_NOTICE_OTHERS_UNTIL = time(2, 30)   # in bein hazmanim, non-riders clocking 
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
 UMAN_NIGHTS_EACH_WAY = 3
 
+# Meron
+MERON_RECORDED_IN = time(2, 25)      # a Meron rider who clocks in before this is recorded as arriving at 2:25
+MERON_RECORDED_IN_BHZ = time(3, 25)
+MERON_BONUS = 35                     # per night travelled to Meron (clocked in within the shuttle window)
+DRIVER_BONUS = 60                    # per night the driver confirmed the shuttle
+
+# Monthly rules
+PERCENT_BONUSES = [(70, 200), (80, 100)]   # attendance >= 70% -> +200, >= 80% -> another +100
+MIN_WHOLE_NIGHTS = 2                 # below this OR below MIN_STIPEND (without Meron): no stipend this month
+MIN_STIPEND = 500
+REMOVE_AFTER_MONTHS = 2              # avrech with this many counted months in a row without stipend is removed
+NOT_COUNTED_MONTHS = (1, 5, 7, 9)    # Nisan, Av, Tishrei, Kislev - neither count nor break the sequence
+
 
 # ---- which night ---------------------------------------------------------
 
@@ -110,6 +123,21 @@ def next_opening(emp, dt):
     return opens_at(emp, d)
 
 
+def meron_recorded_in(d):
+    t = MERON_RECORDED_IN_BHZ if bhz_range_of(d) else MERON_RECORDED_IN
+    return datetime.combine(d, t, tzinfo=db.TZ)
+
+
+def recorded_clock_in(emp, t):
+    """(time to record, is_meron) for someone clocking in at `t`.
+    Meron riders who call before 2:25 (3:25) are recorded at 2:25; within the shuttle window it is a Meron night."""
+    if not is_rider(emp):
+        return t, False
+    d = session_date(t)
+    at = meron_recorded_in(d)
+    return (at if t < at else t), shuttle_open(t)
+
+
 def default_exit(d):
     return window(d)[1]
 
@@ -126,11 +154,8 @@ def nightly_max(emp):
     return None if base is None else base + ON_TIME_BONUS + KEEP_TIME_BONUS
 
 
-def night_pay(emp, records, d):
-    """Pay for one night from that night's attendance records. Returns dict or None if no rate."""
-    base_full = nightly_base(emp)
-    if base_full is None or not records:
-        return None
+def present_minutes(records, d):
+    """Minutes present inside the kollel hours (2:30-7:30, bein hazmanim 3:30-7:30), and the session length."""
     start, end = window(d)
     session_min = (end - start).total_seconds() / 60
     present = 0.0
@@ -140,7 +165,16 @@ def night_pay(emp, records, d):
         lo, hi = max(cin, start), min(cout, end)
         if hi > lo:
             present += (hi - lo).total_seconds() / 60
-    present = min(present, session_min)
+    return min(present, session_min), session_min
+
+
+def night_pay(emp, records, d):
+    """Pay for one night from that night's attendance records. Returns dict or None if no rate."""
+    base_full = nightly_base(emp)
+    if base_full is None or not records:
+        return None
+    start, end = window(d)
+    present, session_min = present_minutes(records, d)
     first_in = min(db.parse(r["clock_in"]) for r in records)
     bonus = 0
     if first_in < start:
@@ -148,8 +182,19 @@ def night_pay(emp, records, d):
     elif first_in < start + timedelta(minutes=LATE_GRACE_MINUTES + 1):
         bonus = KEEP_TIME_BONUS
     base = round(base_full * present / session_min, 2)
-    return {"date": d, "minutes": round(present), "base": base, "bonus": bonus, "total": round(base + bonus, 2),
-            "bhz": bool(bhz_range_of(d))}
+    last_out = max((db.parse(r["clock_out"]) if r["clock_out"] else end) for r in records)
+    meron = any(_get(r, "meron") for r in records)
+    return {"date": d, "minutes": round(present), "session": round(session_min), "base": base, "bonus": bonus,
+            "total": round(base + bonus, 2), "bhz": bool(bhz_range_of(d)),
+            "whole": bonus >= KEEP_TIME_BONUS and last_out >= end, "early": first_in < start,
+            "meron": meron, "meron_pay": MERON_BONUS if meron else 0}
+
+
+def _get(row, key):
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
 
 
 def nights_for(emp_id, first, last):
@@ -173,19 +218,20 @@ def kollel_nights(first, last):
 
 # ---- Uman for Rosh Hashana -----------------------------------------------
 
-def attendance_percent(emp, months):
-    """Weighted attendance % over Hebrew months [(year, month), ...] = earned / max possible."""
-    mx = nightly_max(emp)
-    if not mx:
-        return 0.0
-    earned = possible = 0.0
+def attendance_percent(emp, months, until=None):
+    """Attendance % in time (kollel hours present / kollel hours held), over Hebrew months [(year, month)].
+    The +20 / +10 and Meron are not part of it."""
+    present = possible = 0.0
     for y, m in months:
         first, last = hebcal.month_range(y, m)
-        held = kollel_nights(first, last)
+        if until:
+            last = min(last, until)
         mine = nights_for(emp["id"], first, last)
-        possible += mx * len(held)
-        earned += sum((night_pay(emp, recs, d) or {"total": 0})["total"] for d, recs in mine.items())
-    return 0.0 if not possible else min(earned / possible, 1.0)
+        for d in kollel_nights(first, last):
+            p, length = present_minutes(mine.get(d, []), d)
+            present += p
+            possible += length
+    return 0.0 if not possible else min(present / possible, 1.0)
 
 
 def uman_credit(emp, heb_year, today):
@@ -200,6 +246,78 @@ def uman_credit(emp, heb_year, today):
     after = [d for d in kollel_nights(rh + timedelta(days=2), today) if d not in mine]
     nights = sorted(before[:UMAN_NIGHTS_EACH_WAY] + after[:UMAN_NIGHTS_EACH_WAY])
     return pct, [(d, amount) for d in nights]
+
+
+# ---- the month -------------------------------------------------------------
+
+def driver_nights(emp_id, first, last):
+    with db.connect() as c:
+        rows = c.execute("SELECT created_at FROM shuttle_runs WHERE driver_id=? AND status='sent'", (emp_id,)).fetchall()
+    return sorted({d for d in (session_date(db.parse(r["created_at"])) for r in rows) if first <= d <= last})
+
+
+def month_summary(emp, hy, hm, until=None):
+    """Everything about one employee's stipend in one Hebrew month (up to `until`, default the whole month)."""
+    first, last = hebcal.month_range(hy, hm)
+    if until:
+        last = min(last, until)
+    mine = nights_for(emp["id"], first, last)
+    nights = [n for n in (night_pay(emp, recs, d) for d, recs in sorted(mine.items())) if n]
+    held = kollel_nights(first, last)
+    present = sum(present_minutes(mine.get(d, []), d)[0] for d in held)
+    possible = sum(present_minutes([], d)[1] for d in held)
+    pct = 0.0 if not possible else min(present / possible, 1.0)
+    with db.connect() as c:
+        extras = c.execute("SELECT COALESCE(SUM(amount),0) FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
+                           (emp["id"], hy, hm)).fetchone()[0]
+    nightly = round(sum(n["total"] for n in nights), 2)
+    base = round(sum(n["base"] for n in nights), 2)
+    timing = sum(n["bonus"] for n in nights)
+    percent_bonus = sum(amount for at, amount in PERCENT_BONUSES if pct * 100 >= at)
+    whole = sum(1 for n in nights if n["whole"])
+    stipend = round(nightly + percent_bonus + extras, 2)          # without Meron
+    eligible = whole >= MIN_WHOLE_NIGHTS and stipend >= MIN_STIPEND
+    meron_nights = sum(1 for n in nights if n["meron"])
+    meron = meron_nights * MERON_BONUS
+    drives = len(driver_nights(emp["id"], first, last))
+    driver = drives * DRIVER_BONUS
+    rate_ok = nightly_base(emp) is not None
+    return {
+        "nights": len(nights), "whole": whole, "early": sum(1 for n in nights if n["early"]),
+        "percent": pct, "present_min": present, "possible_min": possible, "held": len(held),
+        "base": base, "timing": timing, "percent_bonus": percent_bonus, "extras": round(extras, 2),
+        "stipend": stipend, "eligible": eligible, "meron_nights": meron_nights, "meron": meron,
+        "drives": drives, "driver": driver, "rate_ok": rate_ok,
+        "total": round((stipend if eligible else 0) + meron + driver, 2) if rate_ok else None,
+    }
+
+
+def counted_months_before(hy, hm, n):
+    """The n Hebrew months before (hy, hm) that count for removal (skipping Nisan, Av, Tishrei, Kislev)."""
+    out = []
+    y, m = hy, hm
+    while len(out) < n:
+        y, m = hebcal.prev_month(y, m)
+        if m not in NOT_COUNTED_MONTHS:
+            out.append((y, m))
+    return out
+
+
+def removed_by_rule(emp, today):
+    """An avrech (not a manager) with REMOVE_AFTER_MONTHS counted months in a row without stipend,
+    after the date he joined or was last restored."""
+    if emp["role"] != "employee":
+        return False
+    since = _get(emp, "restored_on") or _get(emp, "joined_on")
+    since = date.fromisoformat(since[:10]) if since else None
+    hy, hm, _ = hebcal.from_gregorian(today)
+    for y, m in counted_months_before(hy, hm, REMOVE_AFTER_MONTHS):
+        first, _last = hebcal.month_range(y, m)
+        if since is None or first < since:
+            return False
+        if month_summary(emp, y, m)["eligible"]:
+            return False
+    return True
 
 
 def uman_question_due(today):

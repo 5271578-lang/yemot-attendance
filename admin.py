@@ -78,23 +78,12 @@ def month_nights(emp, hy, hm, att):
 def payroll_rows(hy, hm):
     with db.connect() as c:
         emps = c.execute("SELECT * FROM employees ORDER BY active DESC, name").fetchall()
-        att = c.execute("SELECT * FROM attendance WHERE heb_year=? AND heb_month=?", (hy, hm)).fetchall()
-        bon = c.execute("SELECT employee_id, SUM(amount) s FROM bonuses WHERE heb_year=? AND heb_month=? "
-                        "GROUP BY employee_id", (hy, hm)).fetchall()
-    extra = {b["employee_id"]: b["s"] for b in bon}
     out = []
     for e in emps:
-        nights, by_night = month_nights(e, hy, hm, att)
-        if not nights and not e["active"] and e["id"] not in extra:
+        m = schedule.month_summary(e, hy, hm)
+        if not m["nights"] and not e["active"] and not m["extras"]:
             continue
-        rate_ok = schedule.nightly_base(e) is not None
-        base = round(sum(n["base"] for n in nights if n), 2)
-        timing = sum(n["bonus"] for n in nights if n)
-        x = round(extra.get(e["id"], 0) or 0, 2)
-        out.append(dict(emp=e, nights=len(by_night), hours=round(sum(n["minutes"] for n in nights if n) / 60, 2),
-                        nightly=schedule.nightly_base(e), base=base, timing=timing, extra=x,
-                        total=round(base + timing + x, 2) if rate_ok else None,
-                        unconfirmed=sum(1 for recs in by_night.values() for a in recs if not a["exit_confirmed"])))
+        out.append(dict(emp=e, nightly=schedule.nightly_base(e), **m))
     return out
 
 
@@ -110,20 +99,25 @@ def payroll():
 <p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
 <a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">Download CSV</a></p>
-<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Role</th><th class="right">Nights</th><th class="right">Hours</th>
-<th class="right">Nightly base</th><th class="right">Base</th><th class="right">On-time</th><th class="right">Extras</th>
-<th class="right">Total ₪</th><th></th></tr>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th class="right">Nights</th><th class="right">Whole</th>
+<th class="right">Attendance</th><th class="right">Nightly</th><th class="right">70/80%</th><th class="right">Extras</th>
+<th class="right">Stipend</th><th class="right">Meron</th><th class="right">Driver</th><th class="right">Total ₪</th></tr>
 {% for r in rows %}<tr><td>{{ r.emp.emp_number }}</td>
-<td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a></td>
-<td>{{ roles[r.emp.role] }}</td><td class="right">{{ r.nights }}</td><td class="right">{{ '%.2f'|format(r.hours) }}</td>
-<td class="right">{% if r.nightly is none %}<span class="warn">not set</span>{% else %}{{ r.nightly }}{% endif %}</td>
-<td class="right">{{ '%.2f'|format(r.base) }}</td><td class="right">{{ r.timing }}</td><td class="right">{{ '%.2f'|format(r.extra) }}</td>
-<td class="right"><b>{{ '%.2f'|format(r.total) if r.total is not none else '—' }}</b></td>
-<td>{% if r.unconfirmed %}<span class="muted">{{ r.unconfirmed }} exit not confirmed yet</span>{% endif %}</td></tr>{% endfor %}
+<td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a>
+<span class="muted">{{ roles[r.emp.role] if r.emp.role != 'employee' else '' }}</span></td>
+<td class="right">{{ r.nights }}</td><td class="right">{{ r.whole }}</td><td class="right">{{ (r.percent * 100)|round(1) }}%</td>
+<td class="right">{{ '%.2f'|format(r.base + r.timing) }}</td><td class="right">{{ r.percent_bonus }}</td>
+<td class="right">{{ '%.2f'|format(r.extras) }}</td>
+<td class="right">{% if r.eligible %}{{ '%.2f'|format(r.stipend) }}{% else %}<span class="warn" title="below the minimum">0</span>
+<span class="muted">({{ '%.0f'|format(r.stipend) }})</span>{% endif %}</td>
+<td class="right">{{ r.meron }}</td><td class="right">{{ r.driver }}</td>
+<td class="right"><b>{% if r.total is none %}<span class="warn">rate not set</span>{% else %}{{ '%.2f'|format(r.total) }}{% endif %}</b></td>
+</tr>{% endfor %}
 </table></div>
-<p class="muted">Per night: nightly base × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30).
-On-time: +20 up to 10 minutes late, +30 before the start. A night with no exit counts until 7:30.
-Extras = Uman nights and bonuses added by hand.</p>"""
+<p class="muted">Nightly: 80 × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30), +20 up to 10 minutes late,
++30 before the start. A night without an exit counts until 7:30. Attendance % is by time only.
+70% → +200, 80% → +100 more. Below 2 whole nights or below 500 (without Meron) → no stipend (red 0).
+Meron: 35 a night. Driver: 60 a night. Extras = Uman nights and bonuses added by hand.</p>"""
     title = f"{hebcal.month_name(hm, hy)} {hy}"
     return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last,
                 title=title, roles=ROLE_NAMES)
@@ -134,11 +128,13 @@ def export():
     hy, hm = month_args()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Employee no.", "Name", "Role", "Nights", "Hours", "Nightly base", "Base", "On-time", "Extras", "Total"])
+    w.writerow(["Employee no.", "Name", "Role", "Nights", "Whole nights", "Attendance %", "Nightly", "70/80% bonus",
+                "Extras", "Stipend", "Eligible", "Meron nights", "Meron", "Drives", "Driver", "Total"])
     for r in payroll_rows(hy, hm):
-        w.writerow([r["emp"]["emp_number"], r["emp"]["name"], ROLE_NAMES[r["emp"]["role"]], r["nights"], r["hours"],
-                    r["nightly"] if r["nightly"] is not None else "", r["base"], r["timing"], r["extra"],
-                    r["total"] if r["total"] is not None else ""])
+        w.writerow([r["emp"]["emp_number"], r["emp"]["name"], ROLE_NAMES[r["emp"]["role"]], r["nights"], r["whole"],
+                    round(r["percent"] * 100, 1), round(r["base"] + r["timing"], 2), r["percent_bonus"], r["extras"],
+                    r["stipend"], "yes" if r["eligible"] else "no", r["meron_nights"], r["meron"], r["drives"],
+                    r["driver"], r["total"] if r["total"] is not None else ""])
     name = f"payroll-{hebcal.month_name(hm, hy).replace(' ', '')}-{hy}.csv"
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={name}"})
@@ -159,12 +155,16 @@ def employee_month(eid):
 <div class="wrap"><table><tr><th>Hebrew date</th><th>Clock in</th><th>Exit</th><th class="right">Minutes</th>
 <th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Note</th><th></th></tr>
 {% for a in recs %}{% set n = pay.get(a.id) %}<tr><td>{{ a.heb_day }} {{ title }}{% if n and n.bhz %} · <span class="muted">bein hazmanim</span>{% endif %}</td>
-<td>{{ fmt(a.clock_in) }}</td>
+<td>{{ fmt(a.clock_in) }}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
+{% if a.actual_in and a.actual_in != a.clock_in %}<br><span class="muted">called {{ fmt(a.actual_in) }}</span>{% endif %}</td>
 <td>{% if a.clock_out %}{{ fmt(a.clock_out) }}{% if a.early_exit %} <span class="muted">early</span>{% endif %}{% else %}<span class="muted">7:30 (default)</span>{% endif %}
 {% if not a.exit_confirmed %} <span class="muted">· not confirmed</span>{% endif %}</td>
 <td class="right">{{ n.minutes if n else '' }}</td><td class="right">{{ n.base if n else '' }}</td>
 <td class="right">{{ n.bonus if n else '' }}</td><td class="right"><b>{{ n.total if n else '' }}</b></td><td>{{ a.note or '' }}</td>
 <td><a href="{{ url_for('admin.edit_attendance', aid=a.id) }}">edit</a></td></tr>{% endfor %}</table></div>
+<div class="box"><b>Month:</b> {{ sm.nights }} nights · {{ sm.whole }} whole · {{ sm.early }} early ·
+attendance {{ (sm.percent * 100)|round(1) }}% · stipend {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(below minimum → 0)</span>{% endif %}
+· Meron {{ sm.meron_nights }} ({{ sm.meron }}) · driver {{ sm.drives }} ({{ sm.driver }}) · <b>total {{ sm.total }}</b></div>
 {% if uman %}<div class="box"><b>Uman</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
 <td>{{ 'travelled' if u.went else 'did not travel' }}</td><td>{% if u.went %}{{ (u.percent * 100)|round(1) }}% · nights: {{ u.nights or 'none found' }}{% endif %}</td>
 </tr>{% endfor %}</table></div>{% endif %}
@@ -180,7 +180,8 @@ Amount ₪ <input name="amount" type="number" step="0.01" required> For <input n
     pay = {}
     for n, (d, rs) in zip(nights, sorted(by_night.items())):
         pay[rs[0]["id"]] = n
-    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, hy=hy, hm=hm,
+    sm = schedule.month_summary(e, hy, hm)
+    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, hy=hy, hm=hm,
                 title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt)
 
 
@@ -292,7 +293,8 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls) VALUES (?,?,?,?,?,?,?,?,?,?,?)", emp_values(request.form))
+                          "language,shuttle_calls,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees"))
         except Exception as ex:                       # duplicate number etc.
             error = str(ex)
@@ -300,13 +302,24 @@ def employees():
         emps = c.execute("SELECT * FROM employees ORDER BY active DESC, name").fetchall()
     body = """<h1>Employees</h1>{% if error %}<p class="warn">{{ error }}</p>{% endif %}
 <div class="box"><b>Add employee</b>""" + EMP_FORM + """</div>
-<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th></th></tr>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
 {% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}</td>
 <td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}</td><td>{{ x.shift or '' }}</td><td>{{ x.shuttle_group or '' }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">not set</span>{% else %}{{ r }}{% endif %}</td>
 <td>{{ langs[x.language] }}{% if x.shuttle_group %} · {{ x.shuttle_calls or '?' }} calls{% endif %}</td>
+<td>{% if removed(x) %}<span class="warn">removed (2 months)</span>
+<form method="post" action="{{ url_for('admin.restore', eid=x.id) }}" style="display:inline"><button>Restore</button></form>{% endif %}</td>
 <td><a href="{{ url_for('admin.edit_employee', eid=x.id) }}">edit</a></td></tr>{% endfor %}</table></div>"""
-    return page(body, emps=emps, e=None, roles=ROLE_NAMES, rate=db.rate_for, error=error, langs=LANGS)
+    today = schedule.session_date(db.now())
+    return page(body, emps=emps, e=None, roles=ROLE_NAMES, rate=db.rate_for, error=error, langs=LANGS,
+                removed=lambda x: x["active"] and schedule.removed_by_rule(x, today))
+
+
+@bp.route("/employees/<int:eid>/restore", methods=["POST"])
+def restore(eid):
+    with db.connect() as c:
+        c.execute("UPDATE employees SET restored_on=? WHERE id=?", (db.now().date().isoformat(), eid))
+    return redirect(url_for("admin.employees"))
 
 
 @bp.route("/employees/<int:eid>", methods=["GET", "POST"])

@@ -176,6 +176,8 @@ def sign_in(r, emp, own_phone):
     r.s["data"]["own_phone"] = own_phone
     r.s["data"]["lang"] = emp["language"] if emp["language"] in LANGUAGES else "he"
     r.say(r.t("hello", name=emp["name"]))
+    if schedule.removed_by_rule(emp, schedule.session_date(db.now())):
+        return r.say(r.t("removed")).hangup()
     after_sign_in(r)
 
 
@@ -282,7 +284,7 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "9", "*"]
+    txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "6", "9", "*"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
@@ -294,7 +296,8 @@ def main_choice(r, answer):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "9": settings_menu,
+    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "6": status,
+               "9": settings_menu,
                "*": switch_user}
     if answer == "1" and schedule.bhz_notice_due(emp, db.now()):
         bhz_notice(r)
@@ -395,10 +398,13 @@ def finish_clock_in(r):
     """Clock in at the time the call started, not when the key was pressed."""
     emp, t0 = employee(r), call_start(r)
     y, m, d = hebcal.from_gregorian(schedule.session_date(t0))
+    rec, meron = schedule.recorded_clock_in(emp, t0)
     with db.connect() as c:
-        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day) VALUES (?,?,?,?,?)",
-                  (emp["id"], t0.isoformat(), y, m, d))
-    r.say(r.t("entry_saved", time=r.time(t0)))
+        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, meron, actual_in) "
+                  "VALUES (?,?,?,?,?,?,?)", (emp["id"], rec.isoformat(), y, m, d, int(meron), t0.isoformat()))
+    r.say(r.t("entry_saved", time=r.time(rec)))
+    if meron:
+        r.say(r.t("meron_saved"))
     r.say(r.t("goodbye")).hangup()
 
 
@@ -497,6 +503,38 @@ def fix_time(r, answer, kind, days_ago):
         c.execute("INSERT INTO corrections(employee_id, created_at, kind, requested_time) VALUES (?,?,?,?)",
                   (r.s["employee_id"], db.now().isoformat(), kind, when.isoformat()))
     r.say(r.t("fix_saved", kind=r.t("fix_kind_in" if kind == "in" else "fix_kind_out"), time=r.time(when)))
+    main_menu(r)
+
+
+# ---- 6: personal status ---------------------------------------------------
+
+def status(r):
+    emp = employee(r)
+    today = schedule.session_date(db.now())
+    hy, hm, _ = hebcal.from_gregorian(today)
+    s = schedule.month_summary(emp, hy, hm, until=today)
+    month = hebcal.month_name(hm, hy, "en" if r.lang == "en" else "he")
+    pct = round(s["percent"] * 100)
+    r.say(r.t("status_month", month=month, nights=s["nights"], whole=s["whole"], early=s["early"], pct=pct))
+    r.say(r.t("status_stipend", amount=round(s["stipend"])))
+    missing = []
+    for at, _amount in schedule.PERCENT_BONUSES:
+        if pct < at and s["possible_min"]:
+            hours = -(-max(0, at / 100 * s["possible_min"] - s["present_min"]) // 60)
+            missing.append(r.t("status_to_percent", hours=int(hours), pct=at))
+    if not s["eligible"]:
+        whole_needed = max(0, schedule.MIN_WHOLE_NIGHTS - s["whole"])
+        mx = schedule.nightly_max(emp) or 1
+        by_amount = -(-max(0, schedule.MIN_STIPEND - s["stipend"]) // mx)
+        missing.append(r.t("status_to_minimum", nights=int(max(whole_needed, by_amount))))
+    for line in missing:
+        r.say(line)
+    if schedule.is_rider(emp) or s["drives"]:
+        r.say(r.t("status_meron", nights=s["meron_nights"]))
+        if s["drives"]:
+            r.say(r.t("status_driver", drives=s["drives"]))
+        total = round(s["stipend"] + s["meron"] + s["driver"])
+        r.say(r.t("status_total", amount=total))
     main_menu(r)
 
 

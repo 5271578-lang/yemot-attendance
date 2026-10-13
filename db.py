@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS employees (
     is_driver INTEGER NOT NULL DEFAULT 0,
     shuttle_calls INTEGER,
     language TEXT NOT NULL DEFAULT 'he',
+    joined_on TEXT,
+    restored_on TEXT,
     active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS attendance (
@@ -37,6 +39,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     heb_day INTEGER NOT NULL,
     exit_confirmed INTEGER NOT NULL DEFAULT 0,
     early_exit INTEGER NOT NULL DEFAULT 0,
+    meron INTEGER NOT NULL DEFAULT 0,
+    actual_in TEXT,
     note TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -117,8 +121,10 @@ def connect():
 
 # Columns added after the first release. Existing databases get them on start-up.
 MIGRATIONS = {
-    "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'")],
-    "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0")],
+    "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'"),
+                  ("joined_on", "TEXT"), ("restored_on", "TEXT")],
+    "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
+                   ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT")],
 }
 
 
@@ -130,6 +136,8 @@ def init_db():
             for name, decl in cols:
                 if name not in have:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        # whoever has no join date counts from the first time this version runs
+        c.execute("UPDATE employees SET joined_on=? WHERE joined_on IS NULL", (now().date().isoformat(),))
 
 
 def get_setting(key, default=None):
