@@ -282,7 +282,7 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    txt, keys = r.t("menu_main"), ["1", "2", "5", "9"]
+    txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "9"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
@@ -294,7 +294,7 @@ def main_choice(r, answer):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "5": fix_start, "9": ext9}
+    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "9": settings_menu}
     if answer == "1" and schedule.bhz_notice_due(emp, db.now()):
         bhz_notice(r)
     if answer in ("1", "2") and not schedule.clock_in_open(emp, db.now()):
@@ -442,7 +442,7 @@ def shuttle_choice(r, answer):
     people = shuttle_recipients(driver)
     if not people:
         r.say(r.t("shuttle_nobody"))
-        return main_menu(r)
+        return driver_clock_in(r)
     texts = {e["phone"]: text(e["language"], "shuttle_call_text", name=e["name"], group=driver["shuttle_group"])
              for e in people}
     attempts = {e["phone"]: min(max(e["shuttle_calls"] or 1, 1), MAX_SHUTTLE_CALLS) for e in people}
@@ -454,7 +454,15 @@ def shuttle_choice(r, answer):
                                            info if ok else None, "sent" if ok else info))
     if not ok:
         return r.say(r.t("shuttle_failed")).hangup()
-    r.say(r.t("shuttle_sent", count=len(people), group=driver["shuttle_group"])).say(r.t("goodbye")).hangup()
+    r.say(r.t("shuttle_sent", count=len(people), group=driver["shuttle_group"]))
+    driver_clock_in(r)
+
+
+def driver_clock_in(r):
+    """The driver confirming the shuttle also clocks in, exactly as if he had pressed 1."""
+    if schedule.clock_in_open(employee(r), db.now()):
+        return clock_in(r)
+    r.say(r.t("goodbye")).hangup()
 
 
 # ---- 5: attendance correction ------------------------------------------
@@ -487,38 +495,38 @@ def fix_time(r, answer, kind, days_ago):
     main_menu(r)
 
 
-# ---- 9: messages, personal settings, switch user -------------------------
+# ---- 4: messages / 9: personal settings, switch user ---------------------
 
 def is_manager(emp):
     return emp["role"] in db.MANAGER_ROLES
 
 
-def ext9(r):
+def ext4(r):
     emp = employee(r)
-    r.ask("ext9_choice", r.t("ext9_manager" if is_manager(emp) else "ext9_employee"), allowed=["1", "2", "3", "9"])
+    r.ask("ext4_choice", r.t("ext4_manager" if is_manager(emp) else "ext4_employee"), allowed=["1", "2"])
 
 
 @step
-def ext9_choice(r, answer):
+def ext4_choice(r, answer):
     emp = employee(r)
     if answer == "1":
         return start_listening(r, emp)
-    if answer == "3":
-        return settings_menu(r)
-    if answer == "9":
-        r.s["employee_id"] = None
-        r.s["data"]["own_phone"] = False
-        r.s["data"]["attempts"] = 0
-        r.say(r.t("switch_user"))
-        return ask_phone(r)
     if is_manager(emp):
         return send_menu(r)
     record_message(r, {"type": "managers"})
 
 
+def switch_user(r):
+    r.s["employee_id"] = None
+    r.s["data"]["own_phone"] = False
+    r.s["data"]["attempts"] = 0
+    r.say(r.t("switch_user"))
+    ask_phone(r)
+
+
 def settings_menu(r):
     emp = employee(r)
-    txt, keys = r.t("settings_rest"), ["2", "3", "0"]
+    txt, keys = r.t("settings_rest"), ["2", "3", "9", "0"]
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     r.ask("settings_choice", txt, allowed=keys)
@@ -533,6 +541,8 @@ def settings_choice(r, answer):
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         return r.ask("language_set", menu, allowed=["1", "2", "3"])
+    if answer == "9":
+        return switch_user(r)
     main_menu(r)
 
 
@@ -621,7 +631,7 @@ def after_message(r, answer, i):
 def send_menu(r):
     emp = employee(r)
     if not is_manager(emp):                                   # regular employees never send to staff
-        return ext9(r)
+        return ext4(r)
     r.ask("send_choice", r.t("send_menu_tech" if emp["role"] == "tech_manager" else "send_menu_onsite"),
           allowed=["1", "2", "3", "4"])
 
@@ -630,7 +640,7 @@ def send_menu(r):
 def send_choice(r, answer):
     emp = employee(r)
     if not is_manager(emp):
-        return ext9(r)
+        return ext4(r)
     targets = {"1": {"type": "shift"}, "2": {"type": "group", "group": 1}, "3": {"type": "group", "group": 2}}
     if answer in targets:
         if not resolve_recipients(emp, targets[answer]):
@@ -644,7 +654,7 @@ def send_choice(r, answer):
 def send_employee(r, answer):
     emp = employee(r)
     if not is_manager(emp):
-        return ext9(r)
+        return ext4(r)
     with db.connect() as c:
         target = c.execute("SELECT * FROM employees WHERE emp_number=? AND active=1", (answer,)).fetchone()
     if target is None:
@@ -721,13 +731,15 @@ def recorded(r, answer, target):
         c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)",
                       [(msg_id, e["id"]) for e in recipients])
     if NOTIFY_BY_CALL and nbs.enabled():
-        threading.Thread(target=notify, args=(msg_id,), daemon=True).start()
+        by_tzintuk = target["type"] in ("shift", "group")
+        threading.Thread(target=notify, args=(msg_id, by_tzintuk), daemon=True).start()
     r.say(r.t("saved_to_managers" if target["type"] == "managers" else "saved_to_employees"))
     main_menu(r)
 
 
-def notify(msg_id):
-    """Phone each recipient (voice, not SMS) and tell them a new message is waiting."""
+def notify(msg_id, by_tzintuk=False):
+    """Tell each recipient a new message is waiting: a tzintuk (missed-call ring) for a group or everyone,
+    a short voice call for one person or for the managers. Never SMS."""
     with db.connect() as c:
         rows = c.execute("SELECT rc.id, e.name, e.phone, e.language, s.name AS sender FROM message_recipients rc "
                          "JOIN employees e ON e.id=rc.employee_id JOIN messages m ON m.id=rc.message_id "
@@ -735,9 +747,13 @@ def notify(msg_id):
     callable_rows = [x for x in rows if nbs.israeli(x["phone"] or "")]
     if not callable_rows:
         return
-    ok, info = nbs.run_tts_calls({x["phone"]: text(x["language"], "notify_call_text", name=x["name"], sender=x["sender"])
-                                  for x in callable_rows})
+    if by_tzintuk:
+        ok, info = nbs.run_tzintuk([x["phone"] for x in callable_rows])
+    else:
+        ok, info = nbs.run_tts_calls({x["phone"]: text(x["language"], "notify_call_text", name=x["name"],
+                                                       sender=x["sender"]) for x in callable_rows})
     with db.connect() as c:
         c.execute("UPDATE messages SET campaign_id=? WHERE id=?", (info if ok else None, msg_id))
         c.executemany("UPDATE message_recipients SET delivery_status=? WHERE id=?",
-                      [("called" if ok else "call failed", x["id"]) for x in callable_rows])
+                      [(("tzintuk" if by_tzintuk else "called") if ok else "call failed", x["id"])
+                       for x in callable_rows])

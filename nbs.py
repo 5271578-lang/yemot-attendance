@@ -90,6 +90,28 @@ def run_tts_calls(texts_by_phone, template_id=None):
     return True, str(data.get("campaignId") or data.get("campaign_id") or "sent")
 
 
+TZINTUK_SECONDS = 16
+
+
+def run_tzintuk(phones):
+    """Ring each number briefly (a 'missed call'), no message. Returns (ok, info)."""
+    nums = [p for p in (israeli(x) for x in phones) if p]
+    if not nums:
+        return False, "no valid phones"
+    if not enabled():
+        return False, "NBS_TOKEN not set"
+    params = {"phones": ":".join(nums), "TzintukTimeOut": str(TZINTUK_SECONDS)}
+    if CALLER_ID:
+        params["callerId"] = CALLER_ID
+    try:
+        data = _get("RunTzintuk", **params).json()
+    except (requests.RequestException, ValueError) as ex:
+        return False, f"error: {ex}"
+    if str(data.get("responseStatus", "")).upper() != "OK":
+        return False, data.get("message") or data.get("responseStatus") or "error"
+    return True, str(data.get("campaignId") or data.get("callsCount") or "sent")
+
+
 def set_redial(max_attempts=3, wait_seconds=120):
     """Configure the campaign template to retry unanswered calls."""
     if not (enabled() and TEMPLATE_ID):

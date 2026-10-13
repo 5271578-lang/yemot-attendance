@@ -24,7 +24,7 @@ HE = {
     "menu_main": "לעדכון כניסה הקישו 1. ליציאה חריגה הקישו 2",
     "closed_until": "עדכון הכניסה ייפתח בשעה {time}",
     "menu_driver": "לאישור יציאת ההסעה הקישו 3",
-    "menu_rest": "לתיקון נוכחות הקישו 5. להודעות ולהגדרות אישיות הקישו 9",
+    "menu_rest": "להודעות הקישו 4. לתיקון נוכחות הקישו 5. להגדרות אישיות הקישו 9",
     "invalid": "בחירה שגויה",
     "no_input": "לא התקבלה בחירה",
     "goodbye": "להתראות",
@@ -61,11 +61,11 @@ HE = {
     "fix_kind_out": "יציאה",
 
     # 9: messages and personal settings
-    "ext9_manager": "לשמיעת הודעות הקישו 1. להשארת הודעה הקישו 2. להגדרות אישיות הקישו 3. לכניסה כמשתמש אחר הקישו 9",
-    "ext9_employee": "לשמיעת הודעות הקישו 1. להשארת הודעה למנהלים הקישו 2. להגדרות אישיות הקישו 3. לכניסה כמשתמש אחר הקישו 9",
+    "ext4_manager": "לשמיעת הודעות הקישו 1. להשארת הודעה הקישו 2",
+    "ext4_employee": "לשמיעת הודעות הקישו 1. להשארת הודעה למנהלים הקישו 2",
     "switch_user": "כניסה כמשתמש אחר",
     "settings_shuttle": "לשינוי מספר השיחות בהתראת ההסעה הקישו 1",
-    "settings_rest": "לשינוי הסיסמה הקישו 2. לשינוי שפה הקישו 3. לחזרה לתפריט הראשי הקישו 0",
+    "settings_rest": "לשינוי הסיסמה הקישו 2. לשינוי שפה הקישו 3. לכניסה כמשתמש אחר הקישו 9. לחזרה לתפריט הראשי הקישו 0",
     "shuttle_first": "את מספר השיחות להתראה על יציאת ההסעה בוחרים עכשיו. אפשר לשנות בהמשך בשלוחה 9, בהגדרות האישיות",
     "shuttle_calls_ask": "כמה פעמים להתקשר אליך כשההסעה יוצאת. הקישו מספר בין 1 ל 5",
     "shuttle_calls_saved": "נשמר. המערכת תתקשר אליך עד {n} פעמים, ותפסיק כשתענה",
@@ -96,7 +96,7 @@ HE = {
     "when": "ביום {weekday}, {day} ב{month}, בשעה {time}",
     "after_msg": "לשמיעה חוזרת הקישו 1. להודעה הבאה הקישו 2",
     "end_messages": "אין הודעות נוספות",
-    "notify_call_text": "שלום {name}. יש לך הודעה חדשה מאת {sender}. כדי לשמוע אותה, התקשרו לקו הנוכחות והקישו 9",
+    "notify_call_text": "שלום {name}. יש לך הודעה חדשה מאת {sender}. כדי לשמוע אותה, התקשרו לקו הנוכחות והקישו 4",
 
     # Uman (asked once, after Rosh Hashana, only from the person's own phone)
     "uman_ask": "זכית לנסוע השנה לאומן על ראש השנה. לאישור הקישו 1, אחרת הקישו 2",
@@ -116,7 +116,7 @@ EN = {
     "menu_main": "To clock in, press 1. To leave early, press 2",
     "closed_until": "Clocking in opens at {time}",
     "menu_driver": "To confirm the shuttle is leaving, press 3",
-    "menu_rest": "To correct attendance, press 5. For messages and personal settings, press 9",
+    "menu_rest": "For messages, press 4. To correct attendance, press 5. For personal settings, press 9",
     "invalid": "Invalid choice",
     "no_input": "No choice was received",
     "goodbye": "Goodbye",
@@ -144,13 +144,11 @@ EN = {
     "fix_saved": "Your request to correct the {kind} to {time} was saved and will be sent to the manager",
     "fix_kind_in": "clock in",
     "fix_kind_out": "exit",
-    "ext9_manager": "To hear messages, press 1. To leave a message, press 2. For personal settings, press 3. "
-                    "To sign in as another user, press 9",
-    "ext9_employee": "To hear messages, press 1. To leave a message for the managers, press 2. "
-                     "For personal settings, press 3. To sign in as another user, press 9",
+    "ext4_manager": "To hear messages, press 1. To leave a message, press 2",
+    "ext4_employee": "To hear messages, press 1. To leave a message for the managers, press 2",
     "switch_user": "Sign in as another user",
     "settings_shuttle": "To change the number of shuttle alert calls, press 1",
-    "settings_rest": "To change your password, press 2. To change the language, press 3. To return to the main menu, press 0",
+    "settings_rest": "To change your password, press 2. To change the language, press 3. To sign in as another user, press 9. To return to the main menu, press 0",
     "shuttle_first": "Please choose now how many times to be called when the shuttle leaves. You can change it later by pressing 9, personal settings",
     "shuttle_calls_ask": "How many times should we call you when the shuttle leaves. Enter a number from 1 to 5",
     "shuttle_calls_saved": "Saved. We will call you up to {n} times, and stop when you answer",
@@ -180,7 +178,7 @@ EN = {
     "when": "on {weekday}, {day} {month}, at {time}",
     "after_msg": "To hear the message again, press 1. For the next message, press 2",
     "end_messages": "There are no more messages",
-    "notify_call_text": "Hello {name}. You have a new message from {sender}. To hear it, call the attendance line and press 9",
+    "notify_call_text": "Hello {name}. You have a new message from {sender}. To hear it, call the attendance line and press 4",
     "uman_ask": "Were you able to travel to Uman for Rosh Hashana this year. If yes press 1, otherwise press 2",
     "uman_yes": "Fortunate are you, and whoever was with me for Rosh Hashana should rejoice greatly, "
                 "and each and every journey has a share in the coming redemption, speedily in our days. Amen",
@@ -198,7 +196,7 @@ YI = {
     "menu_main": "צו מעלדן אריינקומען דריקט 1. פאר א פריערדיגע ארויסגיין דריקט 2",
     "closed_until": "מעלדן אריינקומען עפנט זיך אום {time}",
     "menu_driver": "צו באשטעטיגן אז דער שאטל פארט ארויס דריקט 3",
-    "menu_rest": "צו פאררעכטן פרעזענץ דריקט 5. פאר מעסעדזשעס און פערזענליכע איינשטעלונגען דריקט 9",
+    "menu_rest": "פאר מעסעדזשעס דריקט 4. צו פאררעכטן פרעזענץ דריקט 5. פאר פערזענליכע איינשטעלונגען דריקט 9",
     "invalid": "נישט ריכטיגע ברירה",
     "no_input": "קיין ברירה איז נישט אנגעקומען",
     "goodbye": "א גוטן טאג",
@@ -227,13 +225,11 @@ YI = {
     "fix_saved": "די בקשה צו פאררעכטן דאס {kind} אויף {time} איז געשפייכלערט און וועט געשיקט ווערן צום פארוואלטער",
     "fix_kind_in": "אריינקומען",
     "fix_kind_out": "ארויסגיין",
-    "ext9_manager": "צו הערן מעסעדזשעס דריקט 1. צו לאזן א מעסעדזש דריקט 2. פאר פערזענליכע איינשטעלונגען דריקט 3. "
-                    "צו אריינגיין אלס אן אנדער באנוצער דריקט 9",
-    "ext9_employee": "צו הערן מעסעדזשעס דריקט 1. צו לאזן א מעסעדזש פאר די פארוואלטער דריקט 2. "
-                     "פאר פערזענליכע איינשטעלונגען דריקט 3. צו אריינגיין אלס אן אנדער באנוצער דריקט 9",
+    "ext4_manager": "צו הערן מעסעדזשעס דריקט 1. צו לאזן א מעסעדזש דריקט 2",
+    "ext4_employee": "צו הערן מעסעדזשעס דריקט 1. צו לאזן א מעסעדזש פאר די פארוואלטער דריקט 2",
     "switch_user": "אריינגיין אלס אן אנדער באנוצער",
     "settings_shuttle": "צו טוישן וויפיל מאל מען רופט אייך ווען דער שאטל פארט ארויס דריקט 1",
-    "settings_rest": "צו טוישן די פאסווארט דריקט 2. צו טוישן די שפראך דריקט 3. צוריק צום הויפט מעניו דריקט 0",
+    "settings_rest": "צו טוישן די פאסווארט דריקט 2. צו טוישן די שפראך דריקט 3. צו אריינגיין אלס אן אנדער באנוצער דריקט 9. צוריק צום הויפט מעניו דריקט 0",
     "shuttle_first": "ביטע קלייבט יעצט וויפיל מאל מען זאל אייך רופן ווען דער שאטל פארט ארויס. "
                      "מען קען עס שפעטער טוישן מיט 9, אין די פערזענליכע איינשטעלונגען",
     "shuttle_calls_ask": "וויפיל מאל זאל מען אייך רופן ווען דער שאטל פארט ארויס. דריקט א נומער פון 1 ביז 5",
@@ -265,7 +261,7 @@ YI = {
     "after_msg": "צו הערן נאכאמאל דריקט 1. פאר די קומענדיגע מעסעדזש דריקט 2",
     "end_messages": "עס זענען נישטא מער מעסעדזשעס",
     "notify_call_text": "שלום {name}. איר האט א נייע מעסעדזש פון {sender}. "
-                        "כדי עס צו הערן, רופט אן דעם פרעזענץ ליניע און דריקט 9",
+                        "כדי עס צו הערן, רופט אן דעם פרעזענץ ליניע און דריקט 4",
     "uman_ask": "האט איר זוכה געווען צו פארן היי יאר קיין אומאן אויף ראש השנה. אויב יא דריקט 1, אויב נישט דריקט 2",
     "uman_yes": "אשריך שזכית, ומי שהיה אצלי על ראש השנה ראוי לו לשמוח מאד מאד, "
                 "והנסיעה של כל אחד ואחד יש לו חלק בקץ הגאולה הקרובה במהרה בימינו. אמן",

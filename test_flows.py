@@ -124,7 +124,7 @@ def test_protocol_format():
     msgs, fields = t[len("read="):].split("=")
     assert msgs.startswith("t-") and ".t-" in msgs
     f = fields.split(",")
-    assert len(f) == 14 and f[9] == "1.2.5.9" and f[11] == "Ok" and f[12] == "None"
+    assert len(f) == 14 and f[9] == "1.2.4.5.9" and f[11] == "Ok" and f[12] == "None"
 
 
 def test_unknown_phone_signs_in_with_phone_and_password():
@@ -366,9 +366,8 @@ def test_driver_sends_with_each_riders_attempts():
 def test_settings_password_language_and_calls():
     seed()
     c = menu_call("0503333331")
-    c.press("9")
-    t = c.press("3")
-    assert "מספר השיחות" in t and "הסיסמה" in t
+    t = c.press("9")
+    assert "מספר השיחות" in t and "הסיסמה" in t and "כמשתמש אחר" in t
     c.press("2")
     c.press("12")
     assert "בין 4 ל 8" in c.last
@@ -377,16 +376,16 @@ def test_settings_password_language_and_calls():
     c.press("5555")
     assert "שונתה" in c.press("5555")
     assert emp("300")["pin"] == "5555"
-    c.press("9"); c.press("3")
+    c.press("9")
     t = c.press("3")
     assert "For English, press 2" in t and "פאר אידיש דריקט 3" in t
     t = c.press("2")
     assert "The language was saved" in t and "To clock in, press 1" in t
     assert "Hello Worker A1" in Call("0503333331").start()
-    c = Call("0503333331"); c.start(); c.press("9"); c.press("3"); c.press("1")
+    c = Call("0503333331"); c.start(); c.press("9"); c.press("1")
     assert "up to 4 times" in c.press("4")
-    s = menu_call("0503333334"); s.press("9")
-    assert "מספר השיחות" not in s.press("3")                         # no shuttle group
+    s = menu_call("0503333334")
+    assert "מספר השיחות" not in s.press("9")                         # no shuttle group
 
 
 def test_yiddish_menu():
@@ -415,20 +414,57 @@ def test_correction_request_and_approval():
 
 # ---- messages ------------------------------------------------------------
 
+def test_driver_shuttle_also_clocks_in():
+    seed()
+    at(2026, 11, 16, 2, 20)
+    menu_call("0504444444").press("1")
+    at(2026, 11, 17, 0, 50)
+    c = menu_call("0504444444")
+    c.press("3")
+    t = c.press("1")
+    assert "נשלחת ל" in t and "היציאה שלך אתמול" in t               # same rules as key 1
+    t = c.press("1")
+    assert "הכניסה שלך עודכנה בהצלחה לשעה 0 ו 50 דקות" in t
+    assert len(attendance("400")) == 2
+    at(2026, 11, 17, 18, 0)                                          # outside clock-in hours: only the shuttle
+    c = menu_call("0504444444"); c.press("3")
+    t = c.press("1")
+    assert "נשלחת ל" in t and "הכניסה" not in t and c.hung_up
+
+
+def test_group_message_uses_tzintuk():
+    seed()
+    calls = []
+    nbs.run_tzintuk = lambda phones: (calls.append(phones) or (True, "9"))
+    c = menu_call("0502222222")
+    c.press("4"); c.press("2"); c.press("2")                         # shuttle group 1
+    c.press("/8/g.wav")
+    _time.sleep(0.2)
+    assert calls and sorted(calls[-1]) == ["0503333331", "0503333335", "0504444444"]
+    c = menu_call("0502222222")
+    c.press("4"); c.press("2"); c.press("4"); c.press("301")         # one person: voice call
+    SENT.clear()
+    c.press("/8/p.wav")
+    _time.sleep(0.2)
+    assert SENT and SENT[-1][0] == "plain" and len(calls) == 1
+
+
 def test_messages_still_work():
     seed()
+    rung = []
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
     c = menu_call("0502222222")
-    c.press("9"); c.press("2")
+    c.press("4"); c.press("2")
     t = c.press("1")
     f = t.split("=")[2].split(",")
     assert f[2] == "record" and f[3] == "/8"
     assert "תישלח" in c.press("/8/m1.wav")
     _time.sleep(0.2)
-    assert SENT and SENT[-1][0] == "plain"
-    w = menu_call("0503333331"); w.press("9")
+    assert rung and "0503333331" in rung[-1]                         # whole shift: tzintuk
+    w = menu_call("0503333331"); w.press("4")
     t = w.press("1")
     assert "הודעה חדשה, 1 מתוך 1, מאת Site Mgr A" in t and "f-/8/m1" in t
-    e = menu_call("0503333333"); e.press("9")
+    e = menu_call("0503333333"); e.press("4")
     assert "record" in e.press("2")                                  # employee: message to managers only
 
 
