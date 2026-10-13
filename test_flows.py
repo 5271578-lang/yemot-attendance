@@ -713,6 +713,35 @@ def test_monthly_email_report():
     assert r.status_code == 302 and len(sent) == 2
 
 
+def test_import_old_system_file():
+    import io as _io
+    seed()
+    raw = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_import_sample.csv"), "rb").read()
+    r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
+                    content_type="multipart/form-data")
+    html = r.data.decode()
+    assert r.status_code == 200 and "<b>0</b> nights to import" in html and "6 with no matching avrech" in html
+    token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
+    r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "create_and_import"})
+    assert "Imported 6 nights" in r.data.decode() and "Created 1 new" in r.data.decode()
+    e = emp("123456782")
+    assert e["id_number"] == "123456782" and e["pin"] == "1480" and "משה" in e["name"]
+    a = attendance("123456782")
+    assert len(a) == 6 and db.parse(a[0]["clock_in"]).strftime("%d/%m %H:%M") == "07/10 02:25"
+    assert db.parse(a[3]["clock_out"]).strftime("%H:%M") == "07:30"
+    # importing the same file again adds nothing
+    r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
+                    content_type="multipart/form-data")
+    assert "6 already there" in r.data.decode()
+    # matched by ID for an existing avrech with a different name spelling
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET id_number='123456782', name='Moshe Y' WHERE emp_number='303'")
+    r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
+                    content_type="multipart/form-data")
+    assert "<b>6</b> nights to import" in r.data.decode() and "Moshe Y" in r.data.decode()
+
+
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
 

@@ -12,6 +12,9 @@ import hebcal
 import nbs
 import schedule
 import report
+import importer
+import base64
+import secrets
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
@@ -40,7 +43,8 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 .muted{color:#777}.right{text-align:right}h1{font-size:22px}.wrap{overflow-x:auto}
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Attendance &amp; Pay</a>
 <a href="{{ url_for('admin.employees') }}">Employees</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
-<a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a></nav>
+<a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
+<a href="{{ url_for('admin.import_page') }}">Import</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -269,6 +273,7 @@ def delete_bonus(bid):
 EMP_FORM = """<form method="post">
 <input name="emp_number" placeholder="Employee no." value="{{ e.emp_number if e else '' }}" required>
 <input name="name" placeholder="Name" value="{{ e.name if e else '' }}" required>
+<input name="id_number" placeholder="ID number (ת.ז)" value="{{ (e.id_number or '') if e else '' }}">
 <input name="phone" placeholder="Phone (sign-in + caller ID)" value="{{ (e.phone or '') if e else '' }}">
 <input name="pin" placeholder="Password (empty = 1480)" value="{{ e.pin if e else '' }}" pattern="[0-9]{4,8}" title="4-8 digits. Empty = the default 1480">
 <select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
@@ -289,7 +294,8 @@ def emp_values(form):
             float(form["hourly_rate"]) if form.get("hourly_rate") else None,
             1 if form.get("is_driver") else 0,
             form.get("language") if form.get("language") in LANGS else "he",
-            int(form["shuttle_calls"]) if form.get("shuttle_calls") else None)
+            int(form["shuttle_calls"]) if form.get("shuttle_calls") else None,
+            form.get("id_number", "").strip() or None)
 
 
 def phone_taken(phone, eid=None):
@@ -310,7 +316,7 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees"))
         except Exception as ex:                       # duplicate number etc.
@@ -348,7 +354,7 @@ def edit_employee(eid):
         else:
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
-                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, active=? WHERE id=?",
+                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees"))
     with db.connect() as c:
@@ -470,3 +476,54 @@ def shuttles():
 Wait between attempts <input name="wait" type="number" value="120" step="30" min="60"> seconds
 <button>Save</button></form></div>"""
     return page(body, rows=rows, fmt=fmt, msg=msg)
+
+
+# ---- import past attendance ---------------------------------------------
+
+@bp.route("/import", methods=["GET", "POST"])
+def import_page():
+    msg, rows, token = None, None, None
+    if request.method == "POST":
+        token = request.form.get("token")
+        if "file" in request.files and request.files["file"].filename:
+            raw = request.files["file"].read()
+            token = secrets.token_hex(8)
+            db.set_setting(f"import_{token}", base64.b64encode(raw).decode())
+        raw = base64.b64decode(db.get_setting(f"import_{token}", "") or "") if token else b""
+        parsed, err = importer.read_rows(raw) if raw else ([], "no file")
+        if err:
+            msg = f"Could not read the file: {err}"
+        else:
+            rows = importer.match(parsed)
+            action = request.form.get("action")
+            if action in ("import", "create_and_import"):
+                made = importer.create_missing(rows) if action == "create_and_import" else 0
+                rows = importer.match(rows)
+                added = importer.commit(rows)
+                with db.connect() as c:
+                    c.execute("DELETE FROM settings WHERE key=?", (f"import_{token}",))
+                msg = f"Imported {added} nights." + (f" Created {made} new avrechim (password 1480, add their phones)." if made else "")
+                rows, token = None, None
+    counts = {}
+    for r in rows or []:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    body = """<h1>Import past attendance</h1>{% if msg %}<p class="warn">{{ msg }}</p>{% endif %}
+<div class="box"><form method="post" enctype="multipart/form-data">
+File from the old system (CSV / Excel export saved as CSV): <input type="file" name="file" required> <button>Check</button>
+</form><p class="muted">Columns: זהות, שם משפחה, שם פרטי, כניסה, יציאה. Avrechim are matched by ID number (ת.ז), otherwise by name.
+Nothing is saved until you press Import. Nights already in the system are skipped.</p></div>
+{% if rows %}
+<div class="box">
+<b>{{ counts.get('new', 0) }}</b> nights to import · {{ counts.get('exists', 0) }} already there ·
+<span class="{{ 'warn' if counts.get('no match') else '' }}">{{ counts.get('no match', 0) }} with no matching avrech</span> ·
+{{ counts.get('bad date', 0) }} unreadable
+<form method="post" style="margin-top:10px"><input type="hidden" name="token" value="{{ token }}">
+<button name="action" value="import">Import matched nights</button>
+{% if counts.get('no match') %}<button name="action" value="create_and_import" style="background:#2e7d32">Create the missing avrechim and import all</button>{% endif %}
+</form></div>
+<div class="wrap"><table><tr><th>ID</th><th>Name in file</th><th>Matched to</th><th>In</th><th>Out</th><th>Status</th></tr>
+{% for r in rows %}<tr><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.emp.name if r.emp else '' }}</td>
+<td>{{ r['in'].strftime('%d/%m/%Y %H:%M') if r['in'] else '' }}</td><td>{{ r.out.strftime('%d/%m/%Y %H:%M') if r.out else '' }}</td>
+<td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status == 'exists' else '' }}">{{ r.status }}</td></tr>{% endfor %}
+</table></div>{% endif %}"""
+    return page(body, rows=rows, token=token, counts=counts, msg=msg)

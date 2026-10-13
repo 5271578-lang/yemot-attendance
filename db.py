@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS employees (
     language TEXT NOT NULL DEFAULT 'he',
     joined_on TEXT,
     restored_on TEXT,
+    id_number TEXT,
     active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS attendance (
@@ -122,7 +123,7 @@ def connect():
 # Columns added after the first release. Existing databases get them on start-up.
 MIGRATIONS = {
     "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'"),
-                  ("joined_on", "TEXT"), ("restored_on", "TEXT")],
+                  ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
                    ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT")],
 }
