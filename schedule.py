@@ -292,6 +292,54 @@ def month_summary(emp, hy, hm, until=None):
     }
 
 
+# Mornings with no kollel, for forecasting the rest of the month: Shabbat, Yom Tov, Tisha B'Av
+NO_KOLLEL_HEBREW = [(7, 1), (7, 2), (7, 10), (7, 15), (7, 22), (1, 15), (1, 21), (3, 6)]
+
+
+def expected_kollel(d):
+    if d.weekday() == 5:
+        return False
+    y, m, dd = hebcal.from_gregorian(d)
+    if (m, dd) in NO_KOLLEL_HEBREW:
+        return False
+    av9 = 10 if hebcal.to_gregorian(y, 5, 9).weekday() == 5 else 9
+    return (m, dd) != (5, av9)
+
+
+def month_forecast(emp, hy, hm, now):
+    """What is still needed by the end of the month, assuming a kollel every expected night still ahead.
+    Returns dict: remaining nights, and for each target (70, 80, 'min') the whole nights still needed
+    (None = no longer possible)."""
+    first, last = hebcal.month_range(hy, hm)
+    today = session_date(now)
+    tonight_done = now > window(today)[0] or bool(nights_for(emp["id"], today, today))
+    next_night = today + timedelta(days=1) if tonight_done else today
+    so_far = month_summary(emp, hy, hm, until=next_night - timedelta(days=1))
+    remaining = [next_night + timedelta(days=i) for i in range((last - next_night).days + 1)]
+    remaining = [d for d in remaining if expected_kollel(d)]
+    lengths = [present_minutes([], d)[1] for d in remaining]
+    total_possible = so_far["possible_min"] + sum(lengths)
+    out = {"remaining": len(remaining)}
+    for at, _amount in PERCENT_BONUSES:
+        need = at / 100 * total_possible - so_far["present_min"]
+        out[at] = _nights_for_minutes(need, lengths)
+    mx = nightly_max(emp) or 1
+    need_whole = max(MIN_WHOLE_NIGHTS - so_far["whole"], -(-max(0, MIN_STIPEND - so_far["stipend"]) // mx))
+    out["min"] = int(need_whole) if need_whole <= len(remaining) else None
+    return out
+
+
+def _nights_for_minutes(need, lengths):
+    if need <= 0:
+        return 0
+    got = 0
+    for i, length in enumerate(sorted(lengths, reverse=True), 1):
+        got += length
+        if got >= need:
+            return i
+    return None
+
+
 def counted_months_before(hy, hm, n):
     """The n Hebrew months before (hy, hm) that count for removal (skipping Nisan, Av, Tishrei, Kislev)."""
     out = []

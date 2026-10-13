@@ -623,11 +623,17 @@ def test_status_key_6():
     t = menu_call("0503333331").press("6")
     assert "היית נוכח 6 לילות, מתוכם 6 לילות שלמים, ו 6 לילות זריזין מקדימים" in t
     assert "60 אחוז" in t and "660 שקלים" in t
-    assert "להגעה ל 70 אחוז חסרות לך עוד 5 שעות" in t and "להגעה ל 80 אחוז חסרות לך עוד 10 שעות" in t
+    # 10 nights so far, 16 more expected nights in Cheshvan (no Shabbat): 70% of 26 nights = 18.2 -> 13 more
+    assert "ב 70 אחוז, עליך להגיע לעוד 13 לילות שלמים לפחות, מתוך 16 הלילות שנשארו" in t
+    assert "ב 80 אחוז, עליך להגיע לעוד 15 לילות שלמים לפחות, מתוך 16 הלילות שנשארו" in t
     assert "מינימום" not in t
     assert "למירון 6 לילות" in t and "עומדת על 870 שקלים" in t
     t = menu_call("0503333334").press("6")
-    assert "למינימום המלגה חסרים לך עוד 5 לילות שלמים" in t and "מירון" not in t   # 500 / 110
+    assert "למינימום המלגה עליך להגיע לעוד 5 לילות שלמים, מתוך 16" in t and "מירון" not in t   # 500 / 110
+    assert "כבר לא ניתן להגיע ל 80 אחוז" in t                         # 0 of 10 so far, 16 left: max 61%
+    late = g(5787, 8, 28)                                               # near the end of the month: minimum lost
+    at(late.year, late.month, late.day, 9, 0)
+    assert "כבר לא ניתן להגיע למינימום" in menu_call("0503333334").press("6")
 
 
 def test_removed_after_two_counted_months():

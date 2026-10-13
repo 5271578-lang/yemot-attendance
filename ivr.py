@@ -518,15 +518,17 @@ def status(r):
     r.say(r.t("status_month", month=month, nights=s["nights"], whole=s["whole"], early=s["early"], pct=pct))
     r.say(r.t("status_stipend", amount=round(s["stipend"])))
     missing = []
+    f = schedule.month_forecast(emp, hy, hm, db.now())
     for at, _amount in schedule.PERCENT_BONUSES:
-        if pct < at and s["possible_min"]:
-            hours = -(-max(0, at / 100 * s["possible_min"] - s["present_min"]) // 60)
-            missing.append(r.t("status_to_percent", hours=int(hours), pct=at))
+        if f[at] is None:
+            missing.append(r.t("status_percent_lost", pct=at))
+        elif f[at] > 0:
+            missing.append(r.t("status_to_percent", nights=f[at], pct=at, left=f["remaining"]))
     if not s["eligible"]:
-        whole_needed = max(0, schedule.MIN_WHOLE_NIGHTS - s["whole"])
-        mx = schedule.nightly_max(emp) or 1
-        by_amount = -(-max(0, schedule.MIN_STIPEND - s["stipend"]) // mx)
-        missing.append(r.t("status_to_minimum", nights=int(max(whole_needed, by_amount))))
+        if f["min"] is None:
+            missing.append(r.t("status_minimum_lost"))
+        elif f["min"] > 0:
+            missing.append(r.t("status_to_minimum", nights=f["min"], left=f["remaining"]))
     for line in missing:
         r.say(line)
     if schedule.is_rider(emp) or s["drives"]:
