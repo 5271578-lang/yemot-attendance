@@ -379,7 +379,7 @@ def test_settings_password_language_and_calls():
     assert emp("300")["pin"] == "5555"
     c.press("9")
     t = c.press("3")
-    assert "For English, press 2" in t and "פאר אידיש דריקט 3" in t
+    assert "For English, press 2" in t and "אידיש" not in t
     t = c.press("2")
     assert "The language was saved" in t and "To clock in, press 1" in t
     assert "Hello Worker A1" in Call("0503333331").start()
@@ -389,15 +389,12 @@ def test_settings_password_language_and_calls():
     assert "מספר השיחות" not in s.press("9")                         # no shuttle group
 
 
-def test_yiddish_menu():
+def test_yiddish_falls_back_to_hebrew():
     seed()
     with db.connect() as c:
         c.execute("UPDATE employees SET language='yi' WHERE emp_number='300'")
-    t = Call("0503333331").start()
-    assert "צו מעלדן אריינקומען דריקט 1" in t
+    assert "לעדכון כניסה הקישו 1" in Call("0503333331").start()
 
-
-# ---- 5: corrections ------------------------------------------------------
 
 def test_correction_request_and_approval():
     seed()

@@ -585,7 +585,8 @@ def settings_choice(r, answer):
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
-        return r.ask("language_set", menu, allowed=["1", "2", "3"])
+        keys = {"he": "1", "en": "2", "yi": "3"}
+        return r.ask("language_set", menu, allowed=[keys[lang] for lang in LANGUAGES])
     main_menu(r)
 
 

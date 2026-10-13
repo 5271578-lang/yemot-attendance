@@ -6,7 +6,9 @@ Notes for editing:
 - Words in {braces} are filled in by the system - keep them.
 """
 
-LANGUAGES = ("he", "en", "yi")
+# Yiddish is turned off: the phone system reads it with the Hebrew voice and it comes out garbled.
+# To bring it back (e.g. with recorded files), add "yi" here again.
+LANGUAGES = ("he", "en")
 
 WEEKDAYS = {
     "he": ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"],
