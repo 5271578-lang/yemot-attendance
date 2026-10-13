@@ -282,11 +282,11 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "9"]
+    txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "9", "*"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
-    r.ask("main_choice", txt + ". " + r.t("menu_rest"), allowed=keys)
+    r.ask("main_choice", txt + ". " + r.t("menu_rest") + ". " + r.t("menu_switch"), allowed=keys)
 
 
 @step
@@ -294,7 +294,8 @@ def main_choice(r, answer):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
-    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "9": settings_menu}
+    actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "9": settings_menu,
+               "*": switch_user}
     if answer == "1" and schedule.bhz_notice_due(emp, db.now()):
         bhz_notice(r)
     if answer in ("1", "2") and not schedule.clock_in_open(emp, db.now()):
@@ -419,6 +420,10 @@ def early_exit(r):
 
 def shuttle(r):
     emp = employee(r)
+    if not schedule.shuttle_open(db.now()):
+        a, b = schedule.shuttle_window(db.now())
+        r.say(r.t("shuttle_closed", start=r.time(a), end=r.time(b)))
+        return main_menu(r)
     if not emp["shuttle_group"]:
         r.say(r.t("shuttle_no_group"))
         return main_menu(r)
@@ -526,7 +531,7 @@ def switch_user(r):
 
 def settings_menu(r):
     emp = employee(r)
-    txt, keys = r.t("settings_rest"), ["2", "3", "9", "0"]
+    txt, keys = r.t("settings_rest"), ["2", "3", "0"]
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     r.ask("settings_choice", txt, allowed=keys)
@@ -541,8 +546,6 @@ def settings_choice(r, answer):
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         return r.ask("language_set", menu, allowed=["1", "2", "3"])
-    if answer == "9":
-        return switch_user(r)
     main_menu(r)
 
 

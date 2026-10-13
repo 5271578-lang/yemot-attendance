@@ -18,6 +18,8 @@ LATE_GRACE_MINUTES = 10
 OPENS_RIDERS = time(0, 45)           # in a shuttle group (Meron)
 OPENS_RIDERS_BHZ = time(1, 45)
 OPENS_OTHERS = time(1, 30)           # everyone else, also in bein hazmanim
+SHUTTLE_WINDOW = (time(0, 45), time(1, 25))        # key 3 (driver) works only in this window
+SHUTTLE_WINDOW_BHZ = (time(1, 45), time(2, 25))    # bein hazmanim: the shuttle leaves at 2:00
 BHZ_NOTICE_OTHERS_UNTIL = time(2, 30)   # in bein hazmanim, non-riders clocking in before this hear the notice
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
 UMAN_NIGHTS_EACH_WAY = 3
@@ -83,6 +85,17 @@ def bhz_notice_due(emp, dt):
         return False
     until = OPENS_RIDERS_BHZ if is_rider(emp) else BHZ_NOTICE_OTHERS_UNTIL
     return regular_opens_at(emp, d) <= dt < datetime.combine(d, until, tzinfo=db.TZ)
+
+
+def shuttle_window(dt):
+    d = session_date(dt)
+    a, b = SHUTTLE_WINDOW_BHZ if bhz_range_of(d) else SHUTTLE_WINDOW
+    return datetime.combine(d, a, tzinfo=db.TZ), datetime.combine(d, b, tzinfo=db.TZ)
+
+
+def shuttle_open(dt):
+    a, b = shuttle_window(dt)
+    return a <= dt <= b
 
 
 def clock_in_open(emp, dt):

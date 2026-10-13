@@ -124,7 +124,7 @@ def test_protocol_format():
     msgs, fields = t[len("read="):].split("=")
     assert msgs.startswith("t-") and ".t-" in msgs
     f = fields.split(",")
-    assert len(f) == 14 and f[9] == "1.2.4.5.9" and f[11] == "Ok" and f[12] == "None"
+    assert len(f) == 14 and f[9] == "1.2.4.5.9.*" and f[11] == "Ok" and f[12] == "None"
 
 
 def test_unknown_phone_signs_in_with_phone_and_password():
@@ -161,8 +161,8 @@ def test_silence_asks_again_then_hangs_up():
 def test_switch_user_from_known_phone_records_nothing():
     seed()
     c = menu_call("0503333331")
-    c.press("9")
-    assert "כניסה כמשתמש אחר" in c.press("9") and "מספר הטלפון" in c.last
+    assert "לכניסה כמשתמש אחר הקישו כוכבית" in c.last
+    assert "כניסה כמשתמש אחר" in c.press("*") and "מספר הטלפון" in c.last
     c.press("0503333332")
     t = c.press("3332")
     assert "שלום Worker A2" in t
@@ -351,6 +351,7 @@ def test_uman_credit_question_and_amounts():
 
 def test_driver_sends_with_each_riders_attempts():
     seed()
+    at(2026, 11, 17, 0, 55)
     c = menu_call("0504444444")
     assert "לאישור יציאת ההסעה הקישו 3" in c.last
     c.press("3")
@@ -367,7 +368,7 @@ def test_settings_password_language_and_calls():
     seed()
     c = menu_call("0503333331")
     t = c.press("9")
-    assert "מספר השיחות" in t and "הסיסמה" in t and "כמשתמש אחר" in t
+    assert "מספר השיחות" in t and "הסיסמה" in t and "כמשתמש אחר" not in t
     c.press("2")
     c.press("12")
     assert "בין 4 ל 8" in c.last
@@ -426,10 +427,14 @@ def test_driver_shuttle_also_clocks_in():
     t = c.press("1")
     assert "הכניסה שלך עודכנה בהצלחה לשעה 0 ו 50 דקות" in t
     assert len(attendance("400")) == 2
-    at(2026, 11, 17, 18, 0)                                          # outside clock-in hours: only the shuttle
-    c = menu_call("0504444444"); c.press("3")
-    t = c.press("1")
-    assert "נשלחת ל" in t and "הכניסה" not in t and c.hung_up
+    SENT.clear()
+    for h, m in ((0, 40), (1, 26), (18, 0)):                         # outside 0:45-1:25: nothing is sent
+        at(2026, 11, 18, h, m)
+        t = menu_call("0504444444").press("3")
+        assert "רק בין השעה 0 ו 45 דקות לשעה 1 ו 25 דקות" in t and "לעדכון כניסה" in t
+    at(2026, 12, 6, 1, 30)                                           # Chanuka: 1:45-2:25
+    assert "רק בין השעה 1 ו 45 דקות לשעה 2 ו 25 דקות" in menu_call("0504444444").press("3")
+    assert SENT == []
 
 
 def test_group_message_uses_tzintuk():
