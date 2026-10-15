@@ -411,6 +411,27 @@ def test_correction_request_and_approval():
     assert len(a) == 1 and db.parse(a[0]["clock_in"]).day == 16
 
 
+
+def test_day_kollel_correction_says_day():
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='301'")
+    g = hebcal.to_gregorian
+    sun = g(5787, 8, 7)                                              # Sunday: the previous day kollel is Thursday
+    assert sun.weekday() == 6
+    at(sun.year, sun.month, sun.day, 20, 30)
+    c = menu_call("0503333332")
+    c.press("5")
+    assert "לתיקון של היום הקישו 1" in c.press("2")
+    c.press("2")
+    assert "נשמרה ותועבר לאישור" in c.press("1845")
+    with db.connect() as conn:
+        k = conn.execute("SELECT * FROM corrections").fetchone()
+    assert db.parse(k["requested_time"]) == datetime(sun.year, sun.month, sun.day - 3, 18, 45, tzinfo=db.TZ)
+    c = menu_call("0503333331"); c.press("5")                         # night avrech still hears "night"
+    assert "לתיקון של הלילה הקישו 1" in c.press("1")
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():

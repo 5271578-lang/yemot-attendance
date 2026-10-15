@@ -101,6 +101,7 @@ HE = {
     # 5: correction
     "fix_kind": "לתיקון שעת כניסה הקישו 1. לתיקון שעת יציאה הקישו 2",
     "fix_day": "לתיקון של הלילה הקישו 1. לתיקון של הלילה הקודם הקישו 2",
+    "fix_day_day": "לתיקון של היום הקישו 1. לתיקון של היום הקודם הקישו 2",
     "fix_time": "הקישו את השעה בארבע ספרות. לדוגמה, לשתיים וחצי הקישו 0 2 3 0",
     "fix_saved": "הבקשה לתיקון ה{kind} לשעה {time} נשמרה ותועבר לאישור המנהל",
     "fix_kind_in": "כניסה",
@@ -224,6 +225,7 @@ EN = {
     "shuttle_call_text": "Hello {name}. The shuttle of {group} has left",
     "fix_kind": "To correct a clock in time, press 1. To correct an exit time, press 2",
     "fix_day": "For tonight, press 1. For the previous night, press 2",
+    "fix_day_day": "For today, press 1. For the previous day, press 2",
     "fix_time": "Enter the time in four digits. For example, for two thirty, press 0 2 3 0",
     "fix_saved": "Your request to correct the {kind} to {time} was saved and will be sent to the manager",
     "fix_kind_in": "clock in",

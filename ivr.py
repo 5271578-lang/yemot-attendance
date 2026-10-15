@@ -515,9 +515,32 @@ def fix_start(r):
     r.ask("fix_kind", r.t("fix_kind"), allowed=["1", "2"])
 
 
+def fix_program(emp, t):
+    """Which kollel a correction is about: the only one he is in, else by the time of the call."""
+    if not schedule.in_night(emp):
+        return "day"
+    if not schedule.in_day(emp):
+        return "night"
+    return schedule.program_now(emp, t) or ("day" if 12 <= t.hour < 20 else "night")
+
+
+def fix_date(program, t, previous):
+    if program == "night":
+        return schedule.session_date(t) - timedelta(days=1 if previous else 0)
+    d = t.date()
+    if previous:                                   # the last day kollel before today
+        d -= timedelta(days=1)
+        for _ in range(60):
+            if schedule.day_kollel_on(d):
+                break
+            d -= timedelta(days=1)
+    return d
+
+
 @step
 def fix_kind(r, answer):
-    r.ask("fix_day", r.t("fix_day"), allowed=["1", "2"], kind="in" if answer == "1" else "out")
+    day = fix_program(employee(r), call_start(r)) == "day"
+    r.ask("fix_day", r.t("fix_day_day" if day else "fix_day"), allowed=["1", "2"], kind="in" if answer == "1" else "out")
 
 
 @step
@@ -527,7 +550,8 @@ def fix_day(r, answer, kind):
 
 @step
 def fix_time(r, answer, kind, days_ago):
-    d = schedule.session_date(call_start(r)) - timedelta(days=days_ago)
+    t0 = call_start(r)
+    d = fix_date(fix_program(employee(r), t0), t0, days_ago == 1)
     when = parse_hhmm(answer, d)
     if when is None:
         r.say(r.t("bad_time"))
