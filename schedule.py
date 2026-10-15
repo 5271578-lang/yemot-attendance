@@ -518,19 +518,38 @@ def payer_split(s):
     }
 
 
-NIGHT_MONTH_STARTS = 27      # the night kollel stipend month runs from the 27th to the 26th of the next month
+# The night kollel stipend month: from Rosh Chodesh (the 30th of the month before, when there is one) to the 29th.
+# Once only: Cheshvan 5787 started on 27 Tishrei (the stipend was paid up to 26 Tishrei).
+NIGHT_MONTH_LAST_DAY = 29
+NIGHT_MONTH_SPECIAL_START = {(5787, 8): (5787, 7, 27)}
 
 
 def night_month_range(hy, hm):
-    """Gregorian (first, last) of night month (hy, hm): 27 of the month before through 26 of (hy, hm)."""
+    """Gregorian (first, last) session dates of night month (hy, hm)."""
     py, pm = hebcal.prev_month(hy, hm)
-    return hebcal.to_gregorian(py, pm, NIGHT_MONTH_STARTS), hebcal.to_gregorian(hy, hm, NIGHT_MONTH_STARTS - 1)
+    if (hy, hm) in NIGHT_MONTH_SPECIAL_START:
+        first = hebcal.to_gregorian(*NIGHT_MONTH_SPECIAL_START[(hy, hm)])
+    elif hebcal.month_length(pm, py) == 30:
+        first = hebcal.to_gregorian(py, pm, 30)
+    else:
+        first = hebcal.to_gregorian(hy, hm, 1)
+    nxt = hebcal.next_month(hy, hm)
+    if nxt in NIGHT_MONTH_SPECIAL_START:
+        last = hebcal.to_gregorian(*NIGHT_MONTH_SPECIAL_START[nxt]) - timedelta(days=1)
+    else:
+        last = hebcal.to_gregorian(hy, hm, NIGHT_MONTH_LAST_DAY)
+    return first, last
 
 
 def night_month_of(d):
     """(hy, hm) of the night month that session date `d` belongs to."""
     y, m, dd = hebcal.from_gregorian(d)
-    return hebcal.next_month(y, m) if dd >= NIGHT_MONTH_STARTS else (y, m)
+    nxt = hebcal.next_month(y, m)
+    if dd > NIGHT_MONTH_LAST_DAY:
+        return nxt
+    if nxt in NIGHT_MONTH_SPECIAL_START and d >= hebcal.to_gregorian(*NIGHT_MONTH_SPECIAL_START[nxt]):
+        return nxt
+    return y, m
 
 
 def counted_months_before(hy, hm, n):

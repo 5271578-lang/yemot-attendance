@@ -336,9 +336,8 @@ def test_uman_credit_question_and_amounts():
     with db.connect() as conn:
         u = conn.execute("SELECT * FROM uman").fetchone()
         b = conn.execute("SELECT * FROM bonuses ORDER BY id").fetchall()
-    # night months run 27th-26th: Tamuz 6/10, Elul (27 Av - 26 Elul) 5/8 -> 11/18
-    assert abs(u["percent"] - 11 / 18) < 0.001
-    assert len(b) == 5 and all(abs(x["amount"] - round(11 / 18 * 110, 2)) < 0.01 for x in b)   # 3 before + 2 after so far
+    assert abs(u["percent"] - 0.55) < 0.001
+    assert len(b) == 5 and all(abs(x["amount"] - 60.5) < 0.01 for x in b)      # 3 before + 2 after so far
     assert sorted({x["heb_month"] for x in b}) == [6, 7]
     assert "אומן" not in Call("0503333331").start()                 # asked only once
     c = Call("0503333332")
@@ -658,15 +657,15 @@ def test_status_key_6():
     t = menu_call("0503333331").press("6")
     assert "היית נוכח 6 לילות, מתוכם 6 לילות שלמים, ו 6 לילות זריזין מקדימים" in t
     assert "60 אחוז" in t and "660 שקלים" in t
-    # night month ends 26 Cheshvan: 10 nights so far, 13 more expected (no Shabbat): 70% of 23 = 16.1 -> 11 more
-    assert "ב 70 אחוז, עליך להגיע לעוד 11 לילות שלמים לפחות, מתוך 13 הלילות שנשארו" in t
-    assert "ב 80 אחוז, עליך להגיע לעוד 13 לילות שלמים לפחות, מתוך 13 הלילות שנשארו" in t
+    # night month ends 29 Cheshvan: 10 nights so far, 15 more expected (no Shabbat): 70% of 25 = 17.5 -> 12 more
+    assert "ב 70 אחוז, עליך להגיע לעוד 12 לילות שלמים לפחות, מתוך 15 הלילות שנשארו" in t
+    assert "ב 80 אחוז, עליך להגיע לעוד 14 לילות שלמים לפחות, מתוך 15 הלילות שנשארו" in t
     assert "מינימום" not in t
     assert "למירון 6 לילות" in t and "עומדת על 870 שקלים" in t
     t = menu_call("0503333334").press("6")
-    assert "למינימום המלגה עליך להגיע לעוד 5 לילות שלמים, מתוך 13" in t and "מירון" not in t   # 500 / 110
-    assert "כבר לא ניתן להגיע ל 80 אחוז" in t                         # 0 of 10 so far, 13 left: max 57%
-    late = g(5787, 8, 25)                                               # near the end of the night month (26th): minimum lost
+    assert "למינימום המלגה עליך להגיע לעוד 5 לילות שלמים, מתוך 15" in t and "מירון" not in t   # 500 / 110
+    assert "כבר לא ניתן להגיע ל 80 אחוז" in t                         # 0 of 10 so far, 15 left: max 60%
+    late = g(5787, 8, 28)                                               # near the end of the night month (29th): minimum lost
     at(late.year, late.month, late.day, 9, 0)
     assert "כבר לא ניתן להגיע למינימום" in menu_call("0503333334").press("6")
 
@@ -714,9 +713,9 @@ def test_monthly_email_report():
     sent = []
     report.send = lambda hy, hm, until=None: (sent.append((hy, hm, until)) or (True, "sent"))
     report.enabled = lambda: True
-    at(g(5787, 8, 27).year, g(5787, 8, 27).month, g(5787, 8, 27).day, 9, 0)
-    assert report.run_once() is None and not sent                    # 27th: not yet
-    d28 = g(5787, 8, 28)
+    at(g(5787, 8, 28).year, g(5787, 8, 28).month, g(5787, 8, 28).day, 9, 0)
+    assert report.run_once() is None and not sent                    # 28th: not yet (the month closes on the 29th)
+    d28 = g(5787, 8, 29)
     at(d28.year, d28.month, d28.day, 7, 0)
     assert report.run_once() is None                                  # before 8:00
     at(d28.year, d28.month, d28.day, 8, 5)

@@ -6,7 +6,7 @@ Settings (Render -> Environment):
   SMTP_FROM        the sender address shown on the e-mail (default: SMTP_USER). Must be a verified sender.
   SMTP_PASSWORD    a Gmail "app password" (16 letters) - not the normal Gmail password
   SMTP_HOST / SMTP_PORT   default smtp.gmail.com / 587
-  REPORT_DAY       Hebrew day of the month to send on (default 28)
+  (the night summary goes out on the morning the night month closes - the 29th)
   REPORT_HOUR      hour to send at (default 8:00)
 """
 import csv
@@ -22,7 +22,6 @@ import db
 import hebcal
 import schedule
 
-REPORT_DAY = int(os.environ.get("REPORT_DAY", 28))
 REPORT_HOUR = int(os.environ.get("REPORT_HOUR", 8))
 CHECK_EVERY_SECONDS = 15 * 60
 
@@ -206,7 +205,8 @@ def due(now):
     """(hy, hm, today) if the monthly report should go out now, else None."""
     today = now.date()
     hy, hm, hd = hebcal.from_gregorian(today)
-    if hd >= REPORT_DAY and (hd > REPORT_DAY or now.hour >= REPORT_HOUR):
+    last = schedule.night_month_range(hy, hm)[1]          # the 29th: the night month closes that morning
+    if today > last or (today == last and now.hour >= REPORT_HOUR):
         return hy, hm, today
     return None
 
