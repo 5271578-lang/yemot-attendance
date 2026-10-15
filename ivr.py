@@ -249,7 +249,7 @@ def unheard(emp_id):
     with db.connect() as c:
         return c.execute("SELECT rc.id, s.name AS sender FROM message_recipients rc JOIN messages m ON m.id=rc.message_id "
                          "JOIN employees s ON s.id=m.sender_id WHERE rc.employee_id=? AND rc.listened_at IS NULL "
-                         "ORDER BY m.created_at DESC", (emp_id,)).fetchall()
+                         "AND rc.announced_at IS NULL ORDER BY m.created_at DESC", (emp_id,)).fetchall()
 
 
 def menu_or_waiting(r):
@@ -258,6 +258,9 @@ def menu_or_waiting(r):
         r.s["data"]["waiting_asked"] = True
         waiting = unheard(r.s["employee_id"])
         if waiting:
+            with db.connect() as c:                       # announced once only, on the first call after it was sent
+                c.executemany("UPDATE message_recipients SET announced_at=? WHERE id=?",
+                              [(db.now().isoformat(), w["id"]) for w in waiting])
             key = "waiting_one" if len(waiting) == 1 else "waiting_many"
             return r.ask("waiting_choice", r.t(key, sender=waiting[0]["sender"], n=len(waiting)), allowed=["1", "2"])
     main_menu(r)

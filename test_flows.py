@@ -752,8 +752,12 @@ def test_waiting_messages_and_newest_first():
     w = Call("0503333331")
     t = w.start()
     assert "קיבלת 2 הודעות חדשות, האחרונה מאת Site Mgr A" in t and "להמשך לקו הקישו 2" in t
-    t = w.press("1")
-    assert "1 מתוך 2" in t and "f-/8/new" in t                      # newest first
+    assert "קיבלת" not in Call("0503333331").start()                # announced only on the first call
+    c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("2"); c.press("/8/third.wav")
+    assert "קיבלת הודעה מאת Site Mgr A" in Call("0503333331").start()  # a new message is announced again
+    w = menu_call("0503333331"); w.press("4")
+    assert "1 מתוך 3" in w.press("1") and "f-/8/third" in w.last     # newest first
+    assert "f-/8/new" in w.press("2")
     assert "f-/8/old" in w.press("2")
     w = Call("0503333331")
     assert "קיבלת" not in w.start()                                  # all heard: straight to the menu

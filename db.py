@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS message_recipients (
     message_id INTEGER NOT NULL REFERENCES messages(id),
     employee_id INTEGER NOT NULL REFERENCES employees(id),
     delivery_status TEXT NOT NULL DEFAULT 'waiting',
-    listened_at TEXT
+    listened_at TEXT,
+    announced_at TEXT
 );
 CREATE TABLE IF NOT EXISTS corrections (
     id INTEGER PRIMARY KEY,
@@ -124,6 +125,7 @@ def connect():
 MIGRATIONS = {
     "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'"),
                   ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT")],
+    "message_recipients": [("announced_at", "TEXT")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
                    ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT")],
 }
