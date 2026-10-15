@@ -284,6 +284,8 @@ EMP_FORM = """<form method="post">
 <input name="id_number" placeholder="ID number (ת.ז)" value="{{ (e.id_number or '') if e else '' }}">
 <input name="phone" placeholder="Phone (calls go here)" value="{{ (e.phone or '') if e else '' }}">
 <input name="phone2" placeholder="Additional phone" value="{{ (e.phone2 or '') if e else '' }}">
+<select name="phone2_mode" title="Calls to the additional phone">{% for k, v in {'none': 'No calls to it', 'shuttle': 'Call it: shuttle only', 'all': 'Call it: shuttle + messages'}.items() %}
+<option value="{{k}}" {% if e and e.phone2_mode==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="pin" placeholder="Password (empty = 1480)" value="{{ e.pin if e else '' }}" pattern="[0-9]{4,8}" title="4-8 digits. Empty = the default 1480">
 <select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
@@ -308,7 +310,8 @@ def emp_values(form):
             int(form["shuttle_calls"]) if form.get("shuttle_calls") else None,
             form.get("id_number", "").strip() or None,
             1 if form.get("in_night") else 0, 1 if form.get("in_day") else 0,
-            form.get("phone2", "").strip() or None)
+            form.get("phone2", "").strip() or None,
+            form.get("phone2_mode") if form.get("phone2_mode") in ("none", "shuttle", "all") else "none")
 
 
 def phone_taken(phone, eid=None):
@@ -329,7 +332,8 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,id_number,in_night,in_day,phone2,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,joined_on) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees"))
         except Exception as ex:                       # duplicate number etc.
@@ -368,7 +372,7 @@ def edit_employee(eid):
         else:
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
-                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, active=? WHERE id=?",
+                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees"))
     with db.connect() as c:

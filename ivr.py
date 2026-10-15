@@ -485,6 +485,10 @@ def shuttle_choice(r, answer):
                                     group=GROUPS_SHORT.get(e["language"], GROUPS_SHORT["he"]).get(driver["shuttle_group"], ""))
              for e in people}
     attempts = {e["phone"]: min(max(e["shuttle_calls"] or 1, 1), MAX_SHUTTLE_CALLS) for e in people}
+    for e in people:                                       # the additional phone, if the avrech asked for it
+        if e["phone2"] and e["phone2_mode"] in ("shuttle", "all") and nbs.israeli(e["phone2"]):
+            texts[e["phone2"]] = texts[e["phone"]]
+            attempts[e["phone2"]] = min(max(e["phone2_calls"] or 1, 1), MAX_SHUTTLE_CALLS)
     ok, info = nbs.run_tts_calls_with_attempts(texts, attempts)
     with db.connect() as c:
         c.execute("INSERT INTO shuttle_runs(driver_id, created_at, shuttle_group, recipients, campaign_id, status) "
@@ -621,8 +625,8 @@ def switch_user(r):
 
 def settings_menu(r):
     emp = employee(r)
-    txt, keys = r.t("settings_rest"), ["2", "3", "4", "0"]
-    txt = r.t("settings_meron") + ". " + txt
+    txt, keys = r.t("settings_rest"), ["2", "3", "4", "5", "0"]
+    txt = r.t("settings_meron") + ". " + r.t("settings_phone2") + ". " + txt
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     r.ask("settings_choice", txt, allowed=keys)
@@ -635,12 +639,79 @@ def settings_choice(r, answer):
     if answer == "4":
         return r.ask("meron_group_set", r.t("meron_menu", g1=GROUPS[r.lang][1], g2=GROUPS[r.lang][2]),
                      allowed=["1", "2", "0"])
+    if answer == "5":
+        return phone2_menu(r)
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         keys = {"he": "1", "en": "2", "yi": "3"}
         return r.ask("language_set", menu, allowed=[keys[lang] for lang in LANGUAGES])
+    main_menu(r)
+
+
+# -- 9 -> 5: additional phone
+
+def say_digits(p):
+    return " ".join(p)
+
+
+def phone2_menu(r):
+    emp = employee(r)
+    if not emp["phone2"]:
+        return r.ask("phone2_set", r.t("phone2_enter"), digits=None, timeout=12)
+    mode = r.t({"none": "phone2_mode_none", "shuttle": "phone2_mode_shuttle", "all": "phone2_mode_all"}[emp["phone2_mode"] or "none"])
+    r.ask("phone2_choice", r.t("phone2_menu", phone=say_digits(emp["phone2"]), mode=mode), allowed=["1", "2", "3", "0"])
+
+
+@step
+def phone2_choice(r, answer):
+    if answer == "1":
+        return r.ask("phone2_set", r.t("phone2_enter"), digits=None, timeout=12)
+    if answer == "2":
+        return ask_phone2_mode(r)
+    if answer == "3":
+        with db.connect() as c:
+            c.execute("UPDATE employees SET phone2=NULL, phone2_mode='none' WHERE id=?", (r.s["employee_id"],))
+        r.say(r.t("phone2_deleted"))
+    main_menu(r)
+
+
+@step
+def phone2_set(r, answer):
+    p = db.normalize_phone(answer)
+    if not nbs.israeli(p):
+        r.say(r.t("phone2_bad"))
+        return r.ask("phone2_set", r.t("phone2_enter"), digits=None, timeout=12)
+    if any(e["id"] != r.s["employee_id"] for e in find_by_phone(p)):
+        r.say(r.t("phone2_taken"))
+        return main_menu(r)
+    with db.connect() as c:
+        c.execute("UPDATE employees SET phone2=? WHERE id=?", (p, r.s["employee_id"]))
+    r.say(r.t("phone2_saved", phone=say_digits(p)))
+    ask_phone2_mode(r)
+
+
+def ask_phone2_mode(r):
+    r.ask("phone2_mode_set", r.t("phone2_mode_ask"), allowed=["1", "2", "0"])
+
+
+@step
+def phone2_mode_set(r, answer):
+    mode = {"1": "shuttle", "2": "all", "0": "none"}[answer]
+    with db.connect() as c:
+        c.execute("UPDATE employees SET phone2_mode=? WHERE id=?", (mode, r.s["employee_id"]))
+    if mode == "none":
+        r.say(r.t("phone2_mode_saved_none"))
+        return main_menu(r)
+    r.ask("phone2_calls_set", r.t("phone2_calls_ask"), allowed=[str(n) for n in range(1, MAX_SHUTTLE_CALLS + 1)])
+
+
+@step
+def phone2_calls_set(r, answer):
+    with db.connect() as c:
+        c.execute("UPDATE employees SET phone2_calls=? WHERE id=?", (int(answer), r.s["employee_id"]))
+    r.say(r.t("phone2_calls_saved", n=answer))
     main_menu(r)
 
 
@@ -869,17 +940,21 @@ def notify(msg_id, by_tzintuk=False):
     """Tell each recipient a new message is waiting: a tzintuk (missed-call ring) for a group or everyone,
     a short voice call for one person or for the managers. Never SMS."""
     with db.connect() as c:
-        rows = c.execute("SELECT rc.id, e.name, e.phone, e.language, s.name AS sender FROM message_recipients rc "
+        rows = c.execute("SELECT rc.id, e.name, e.phone, e.phone2, e.phone2_mode, e.language, s.name AS sender "
+                         "FROM message_recipients rc "
                          "JOIN employees e ON e.id=rc.employee_id JOIN messages m ON m.id=rc.message_id "
                          "JOIN employees s ON s.id=m.sender_id WHERE rc.message_id=?", (msg_id,)).fetchall()
     callable_rows = [x for x in rows if nbs.israeli(x["phone"] or "")]
     if not callable_rows:
         return
+    extra = [x for x in callable_rows if x["phone2"] and x["phone2_mode"] == "all" and nbs.israeli(x["phone2"])]
     if by_tzintuk:
-        ok, info = nbs.run_tzintuk([x["phone"] for x in callable_rows])
+        ok, info = nbs.run_tzintuk([x["phone"] for x in callable_rows] + [x["phone2"] for x in extra])
     else:
-        ok, info = nbs.run_tts_calls({x["phone"]: text(x["language"], "notify_call_text", name=x["name"],
-                                                       sender=x["sender"]) for x in callable_rows})
+        texts = {x["phone"]: text(x["language"], "notify_call_text", name=x["name"], sender=x["sender"])
+                 for x in callable_rows}
+        texts.update({x["phone2"]: texts[x["phone"]] for x in extra})
+        ok, info = nbs.run_tts_calls(texts)
     with db.connect() as c:
         c.execute("UPDATE messages SET campaign_id=? WHERE id=?", (info if ok else None, msg_id))
         c.executemany("UPDATE message_recipients SET delivery_status=? WHERE id=?",

@@ -878,6 +878,44 @@ def test_additional_phone():
     assert r.status_code == 302 and emp("301")["phone2"] == "0581111222"
 
 
+def test_additional_phone_in_settings():
+    seed()
+    c = menu_call("0503333331")
+    assert "לטלפון נוסף הקישו 5" in c.press("9")
+    assert "מספר הטלפון הנוסף" in c.press("5")
+    assert "אינו תקין" in c.press("12")
+    assert "כבר רשום אצל אברך אחר" in c.press("0503333332")
+    c = menu_call("0503333331"); c.press("9"); c.press("5")
+    t = c.press("058-111-2233")
+    assert "0 5 8 1 1 1 2 2 3 3 נשמר" in t and "כשההסעה יוצאת בלבד הקישו 1" in t
+    assert "כמה פעמים להתקשר לטלפון הנוסף" in c.press("2")
+    assert "עד 4 פעמים" in c.press("4")
+    e = emp("300")
+    assert (e["phone2"], e["phone2_mode"], e["phone2_calls"]) == ("0581112233", "all", 4)
+    assert "שלום Worker A1" in Call("0581112233").start()
+    # the shuttle calls both phones, each with its own number of attempts
+    at(2026, 11, 17, 0, 55)
+    d = menu_call("0504444444"); d.press("3"); d.press("1")
+    kind, texts, attempts = SENT[-1]
+    assert attempts["0503333331"] == 2 and attempts["0581112233"] == 4
+    # 'all': a message to the group rings the additional phone too
+    rung = []
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
+    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/x.wav")
+    _time.sleep(0.2)
+    assert "0581112233" in rung[-1]
+    # shuttle only: not rung for messages; menu shows the mode; delete
+    c = menu_call("0503333331"); c.press("9")
+    t = c.press("5")
+    assert "בכל ההודעות" in t
+    c.press("2"); c.press("1"); c.press("1")
+    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/y.wav")
+    _time.sleep(0.2)
+    assert "0581112233" not in rung[-1]
+    c = menu_call("0503333331"); c.press("9"); c.press("5")
+    assert "נמחק" in c.press("3") and emp("300")["phone2"] is None
+
+
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
 
