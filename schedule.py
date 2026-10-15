@@ -202,25 +202,50 @@ def day_dates(hy, hm):
     return [first + timedelta(days=i) for i in range((last - first).days + 1) if day_kollel_on(first + timedelta(days=i))]
 
 
+def day_average(emp, hy, hm):
+    """Average day kollel stipend of the last 3 regular months before (hy, hm)."""
+    prev, y, m = [], hy, hm
+    while len(prev) < DAY_AVERAGE_OF:
+        y, m = hebcal.prev_month(y, m)
+        if m not in DAY_VACATION_MONTHS:
+            prev.append(day_month_summary(emp, y, m)["total"])
+    return round(sum(prev) / DAY_AVERAGE_OF, 2)
+
+
+def _would_be_av_days(hy):
+    """Av as if it were a regular month: Sunday to Thursday, without Tisha B'Av."""
+    first, last = hebcal.month_range(hy, 5)
+    av9 = 10 if hebcal.to_gregorian(hy, 5, 9).weekday() == 5 else 9
+    out = []
+    d = first
+    while d <= last:
+        if d.weekday() in (6, 0, 1, 2, 3) and hebcal.from_gregorian(d)[2] != av9:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
 def day_month_summary(emp, hy, hm, until=None):
-    """Day kollel stipend for one Hebrew month (rosh chodesh to rosh chodesh)."""
+    """Day kollel stipend for one Hebrew month (rosh chodesh to rosh chodesh).
+    Nisan, Tishrei: the 3-month average. Av: 1-7 Av by attendance, the rest of the month by the average."""
+    if hm in (1, 7):
+        avg = day_average(emp, hy, hm)
+        return {"vacation": True, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": 0,
+                "keep": 0, "average": avg, "total": avg}
     days = day_dates(hy, hm)
-    if hm in DAY_VACATION_MONTHS:
-        prev, y, m = [], hy, hm
-        while len(prev) < DAY_AVERAGE_OF:
-            y, m = hebcal.prev_month(y, m)
-            if m not in DAY_VACATION_MONTHS:
-                prev.append(day_month_summary(emp, y, m)["total"])
-        avg = round(sum(prev) / DAY_AVERAGE_OF, 2)
-        return {"vacation": True, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": avg,
-                "keep": 0, "total": avg}
-    if not days:
-        return {"vacation": False, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": 0, "keep": 0,
-                "total": 0}
-    per_minute = DAY_MONTHLY_BASE / (len(days) * (DAY_END.hour * 60 + DAY_END.minute - DAY_START.hour * 60 - DAY_START.minute))
-    per_day_keep = DAY_MONTHLY_KEEP_TIME / len(days)
+    if hm == 5:
+        rate_days = _would_be_av_days(hy)
+        vac_share = (len(rate_days) - len(days)) / len(rate_days) if rate_days else 0
+    else:
+        rate_days, vac_share = days, 0
+    empty = {"vacation": False, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": 0, "keep": 0,
+             "average": 0, "total": 0}
+    if not rate_days:
+        return empty
+    per_minute = DAY_MONTHLY_BASE / (len(rate_days) * 180)
+    per_day_keep = DAY_MONTHLY_KEEP_TIME / len(rate_days)
     upto = [d for d in days if until is None or d <= until]
-    mine = nights_for(emp["id"], days[0], days[-1], program="day")
+    mine = nights_for(emp["id"], days[0], days[-1], program="day") if days else {}
     minutes = kept = attended = 0
     for d in upto:
         recs = mine.get(d, [])
@@ -239,10 +264,10 @@ def day_month_summary(emp, hy, hm, until=None):
     held_minutes = len(upto) * 180
     base = round(minutes * per_minute, 2)
     keep = round(kept * per_day_keep, 2)
+    average = round(day_average(emp, hy, hm) * vac_share, 2) if vac_share else 0
     return {"vacation": False, "days": attended, "held": len(upto), "kept": kept, "hours": round(minutes / 60, 2),
             "percent": (minutes / held_minutes) if held_minutes else 0.0, "base": base, "keep": keep,
-            "total": round(base + keep, 2)}
-
+            "average": average, "total": round(base + keep + average, 2)}
 
 def meron_recorded_in(d):
     t = MERON_RECORDED_IN_BHZ if bhz_range_of(d) else MERON_RECORDED_IN

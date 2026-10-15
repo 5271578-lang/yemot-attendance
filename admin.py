@@ -576,11 +576,11 @@ def day_payroll():
 {% if r.vacation %}<td colspan="6" class="muted">No day kollel this month – average of the last 3 months</td>
 {% else %}<td class="right">{{ r.days }} / {{ r.held }}</td><td class="right">{{ r.kept }}</td><td class="right">{{ r.hours }}</td>
 <td class="right">{{ (r.percent * 100)|round(1) }}%</td><td class="right">{{ '%.2f'|format(r.base) }}</td>
-<td class="right">{{ '%.2f'|format(r.keep) }}</td>{% endif %}<td class="right"><b>{{ '%.2f'|format(r.total) }}</b></td></tr>
+<td class="right">{{ '%.2f'|format(r.keep) }}{% if r.average %} <span class="muted">+ {{ '%.2f'|format(r.average) }} average</span>{% endif %}</td>{% endif %}<td class="right"><b>{{ '%.2f'|format(r.total) }}</b></td></tr>
 {% else %}<tr><td colspan="8" class="muted">No avrechim are marked "Day kollel" yet (Employees → edit).</td></tr>{% endfor %}
 </table></div>
 <p class="muted">800 ₪ a month divided by the month's kollel hours, for the hours present. 200 ₪ a month divided by the
-month's kollel days, for each day he came by 16:00. Nisan, Tishrei and Av (kollel until 7 Av): paid the average of the last 3 months.
+month's kollel days, for each day he came by 16:00. Nisan and Tishrei: the average of the last 3 months. Av: 1–7 Av by attendance, the rest of the month by the average.
 No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavuos, Lag BaOmer, and 8 Av to 1 Elul.</p>"""
     return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
                 total=total, title=f"{hebcal.month_name(hm, hy)} {hy}", msg=request.args.get("msg"))

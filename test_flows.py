@@ -837,6 +837,14 @@ def test_day_kollel():
     # vacation month = average of the last three kollel months
     v = schedule.day_month_summary(emp("301"), 5788, 7)                # Tishrei 5788: Elul, Av skipped, Tammuz, Sivan
     assert v["vacation"] and v["total"] == 0
+    # Av: 1-7 by attendance (at the rate of a whole Av), the rest by the 3-month average
+    import unittest.mock as um
+    with um.patch.object(schedule, "day_average", lambda e, y, m: 990.0):
+        av = schedule.day_month_summary(emp("301"), 5787, 5)
+        rate_days = schedule._would_be_av_days(5787)
+        kollel_days = schedule.day_dates(5787, 5)
+        assert all(hebcal.from_gregorian(x)[2] <= 7 for x in kollel_days)
+        assert av["average"] == round(990 * (len(rate_days) - len(kollel_days)) / len(rate_days), 2)
     # messages: the day manager reaches only day avrechim; a day avrech's message reaches the day manager
     rung = []
     nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
