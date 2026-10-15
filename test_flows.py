@@ -775,6 +775,28 @@ def test_import_excel_day_hours_and_warnings():
     assert progs == ["day", "night"]
 
 
+def test_meron_ticked_by_hand():
+    seed()
+    e = emp("303")
+    with db.connect() as c:
+        c.execute("UPDATE employees SET is_driver=1 WHERE id=?", (e["id"],))
+        for day in (12, 13):
+            t = datetime(2026, 11, day, 2, 30, tzinfo=db.TZ)
+            y, m, d = hebcal.from_gregorian(t.date())
+            c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, heb_year, heb_month, heb_day, exit_confirmed, note) "
+                      "VALUES (?,?,?,?,?,?,1,'imported')", (e["id"], t.isoformat(), t.replace(hour=7).isoformat(), y, m, d))
+    a = attendance("303")
+    hy, hm = a[0]["heb_year"], a[0]["heb_month"]
+    page_ = client.get(f"/admin/employee/{e['id']}?hy={hy}&hm={hm}", headers=AUTH).data.decode()
+    assert 'name="meron"' in page_ and 'name="drove"' in page_
+    client.post(f"/admin/employee/{e['id']}/meron?hy={hy}&hm={hm}", headers=AUTH, data={"meron": [str(a[0]["id"])], "drove": [str(a[1]["id"])]})
+    sm = schedule.month_summary(emp("303"), hy, hm)
+    assert sm["meron_nights"] == 1 and sm["meron"] == 35 and sm["drives"] == 1 and sm["driver"] == 60
+    client.post(f"/admin/employee/{e['id']}/meron?hy={hy}&hm={hm}", headers=AUTH, data={})
+    sm = schedule.month_summary(emp("303"), hy, hm)
+    assert sm["meron_nights"] == 0 and sm["drives"] == 0
+
+
 def test_employees_split_by_kollel():
     seed()
     with db.connect() as c:

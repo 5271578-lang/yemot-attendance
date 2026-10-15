@@ -174,16 +174,22 @@ def employee_month(eid):
                          (eid, hy, hm)).fetchall()
     body = """
 <h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">← back</a></p>
+<form method="post" action="{{ url_for('admin.set_meron', eid=e.id, hy=hy, hm=hm) }}">
 <div class="wrap"><table><tr><th>Hebrew date</th><th>Clock in</th><th>Exit</th><th class="right">Minutes</th>
-<th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Note</th><th></th></tr>
+<th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Meron</th>{% if e.is_driver %}<th>Drove</th>{% endif %}<th>Note</th><th></th></tr>
 {% for a in recs %}{% set n = pay.get(a.id) %}<tr><td>{{ a.heb_day }} {{ title }}{% if n and n.bhz %} · <span class="muted">bein hazmanim</span>{% endif %}</td>
 <td>{{ fmt(a.clock_in) }}{% if a.program == 'day' %} <span class="muted">· day kollel</span>{% endif %}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
 {% if a.actual_in and a.actual_in != a.clock_in %}<br><span class="muted">called {{ fmt(a.actual_in) }}</span>{% endif %}</td>
 <td>{% if a.clock_out %}{{ fmt(a.clock_out) }}{% if a.early_exit %} <span class="muted">early</span>{% endif %}{% else %}<span class="muted">7:30 (default)</span>{% endif %}
 {% if not a.exit_confirmed %} <span class="muted">· not confirmed</span>{% endif %}</td>
 <td class="right">{{ n.minutes if n else '' }}</td><td class="right">{{ n.base if n else '' }}</td>
-<td class="right">{{ n.bonus if n else '' }}</td><td class="right"><b>{{ n.total if n else '' }}</b></td><td>{{ a.note or '' }}</td>
+<td class="right">{{ n.bonus if n else '' }}</td><td class="right"><b>{{ n.total if n else '' }}</b></td>
+<td>{% if n %}<input type="checkbox" name="meron" value="{{ a.id }}" {% if n.meron %}checked{% endif %}>{% endif %}</td>
+{% if e.is_driver %}<td>{% if n %}<input type="checkbox" name="drove" value="{{ a.id }}" {% if session_of(a) in drove %}checked{% endif %}>{% endif %}</td>{% endif %}
+<td>{{ a.note or '' }}</td>
 <td><a href="{{ url_for('admin.edit_attendance', aid=a.id) }}">edit</a></td></tr>{% endfor %}</table></div>
+{% if pay %}<button style="margin-top:8px">Save Meron{{ ' / driving' if e.is_driver else '' }}</button>
+<span class="muted"> Tick the nights he went to Meron{{ ' / drove the shuttle' if e.is_driver else '' }} and press Save.</span>{% endif %}</form>
 <div class="box"><b>Month:</b> {{ sm.nights }} nights · {{ sm.whole }} whole · {{ sm.early }} early ·
 attendance {{ (sm.percent * 100)|round(1) }}% · stipend {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(below minimum → 0)</span>{% endif %}
 · Meron {{ sm.meron_nights }} ({{ sm.meron }}) · driver {{ sm.drives }} ({{ sm.driver }}) · <b>total {{ sm.total }}</b></div>
@@ -206,8 +212,39 @@ Amount ₪ <input name="amount" type="number" step="0.01" required> For <input n
     for n, (d, rs) in zip(nights, sorted(by_night.items())):
         pay[rs[0]["id"]] = n
     sm = schedule.month_summary(e, hy, hm)
-    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm,
+    first, last = hebcal.month_range(hy, hm)
+    drove = set(schedule.driver_nights(eid, first, last))
+    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
+                session_of=lambda a: schedule.session_date(db.parse(a["clock_in"])),
                 title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt)
+
+
+@bp.route("/employee/<int:eid>/meron", methods=["POST"])
+def set_meron(eid):
+    """Meron nights (and shuttle drives) ticked by hand - for nights the phone line did not record them."""
+    hy, hm = month_args()
+    meron = {int(x) for x in request.form.getlist("meron")}
+    drove = {int(x) for x in request.form.getlist("drove")}
+    first, last = hebcal.month_range(hy, hm)
+    nights = schedule.nights_for(eid, first, last)
+    with db.connect() as c:
+        e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
+        for d, rs in nights.items():
+            ids = {r["id"] for r in rs}
+            on = bool(ids & meron)
+            c.execute(f"UPDATE attendance SET meron=? WHERE id IN ({','.join('?' * len(ids))})", (1 if on else 0, *ids))
+        if e["is_driver"]:
+            had = set(schedule.driver_nights(eid, first, last))
+            want = {d for d, rs in nights.items() if {r["id"] for r in rs} & drove}
+            for d in want - had:
+                c.execute("INSERT INTO shuttle_runs(driver_id, created_at, shuttle_group, recipients, campaign_id, status) "
+                          "VALUES (?,?,?,?,?,'sent')", (eid, datetime.combine(d, datetime.min.time(), tzinfo=db.TZ)
+                                                         .replace(hour=1).isoformat(), e["shuttle_group"] or 0, "[]", "manual"))
+            for d in had - want:
+                for r in c.execute("SELECT id, created_at FROM shuttle_runs WHERE driver_id=? AND status='sent'", (eid,)).fetchall():
+                    if schedule.session_date(db.parse(r["created_at"])) == d:
+                        c.execute("UPDATE shuttle_runs SET status='removed by admin' WHERE id=?", (r["id"],))
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 
 def parse_local(value):
