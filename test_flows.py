@@ -195,7 +195,7 @@ def test_clock_in_uses_call_start_time():
     c = menu_call("0503333334")
     at(2026, 11, 17, 2, 23)                                         # pressed 1 three minutes later
     t = c.press("1")
-    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 20 דקות" in t and c.hung_up
+    assert "הכניסה שלך להיום נרשמה לשעה 2 ו 20 דקות" in t and c.hung_up
     assert db.parse(attendance("303")[0]["clock_in"]).minute == 20
     assert "כבר נרשמה" in menu_call("0503333334").press("1")
 
@@ -207,10 +207,12 @@ def test_next_night_confirms_default_exit():
     at(2026, 11, 17, 2, 28)
     c = menu_call("0503333334")
     t = c.press("1")
-    assert "היציאה שלך אתמול מוגדרת לשעה 7 ו 30 דקות" in t and "ארבע ספרות" in t
+    # 16/11/2026 = 6 Kislev 5787
+    assert "לפני שאאשר את הכניסה, נא לאשר את היציאה האחרונה שלך, מתאריך 6 בכסלו, מעודכנת לשעה 7 ו 30 דקות" in t
+    assert "ארבע ספרות" in t
     at(2026, 11, 17, 2, 31)
     t = c.press("1")
-    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 28 דקות" in t
+    assert "תודה רבה, הכניסה שלך להיום נרשמה לשעה 2 ו 28 דקות.t-בהצלחה" in t and c.hung_up
     a = attendance("303")
     assert a[0]["clock_out"] and db.parse(a[0]["clock_out"]).hour == 7 and a[0]["exit_confirmed"] == 1
     assert len(a) == 2 and db.parse(a[1]["clock_in"]).minute == 28
@@ -224,12 +226,8 @@ def test_next_night_changes_exit_time():
     c = menu_call("0503333334")
     c.press("1")
     assert "אינה תקינה" in c.press("0215")                          # before that night's clock in
-    t = c.press("0645")
-    assert "שעת היציאה 6 ו 45 דקות" in t
-    assert "ארבע ספרות" in c.press("2")                             # re-enter
-    c.press("0650")
-    t = c.press("1")
-    assert "שעת היציאה נשמרה" in t and "הכניסה שלך עודכנה" in t
+    t = c.press("0650")                                              # no extra confirmation step
+    assert "תודה רבה, הכניסה שלך להיום נרשמה" in t
     a = attendance("303")[0]
     assert db.parse(a["clock_out"]).strftime("%H:%M") == "06:50"
 
@@ -242,7 +240,7 @@ def test_older_nights_are_not_asked_and_day_name_is_used():
     menu_call("0503333332").press("1")
     at(2026, 11, 17, 2, 25)
     t = menu_call("0503333334").press("1")
-    assert "היציאה שלך ביום חמישי" in t
+    assert "היציאה האחרונה שלך, מתאריך 2 בכסלו" in t                # the latest night only
 
 
 def test_early_exit_then_next_night_shows_it():
@@ -254,7 +252,7 @@ def test_early_exit_then_next_night_shows_it():
     assert "היציאה החריגה נרשמה בשעה 5 ו 10 דקות" in t
     at(2026, 11, 17, 2, 25)
     t = menu_call("0503333334").press("1")
-    assert "מוגדרת לשעה 5 ו 10 דקות" in t
+    assert "מעודכנת לשעה 5 ו 10 דקות" in t
     t = menu_call("0503333332").press("2")
     assert "לא נמצאה כניסה" in t and "לעדכון כניסה" in t
 
@@ -267,10 +265,10 @@ def test_bein_hazmanim_notice():
     assert attendance("300") == []
     at(2026, 12, 6, 1, 50)                                           # rider at the bein hazmanim time
     t = menu_call("0503333331").press("1")
-    assert "בין הזמנים" not in t and "הכניסה שלך עודכנה" in t
+    assert "בין הזמנים" not in t and "הכניסה שלך להיום נרשמה" in t
     at(2026, 12, 6, 1, 35)                                           # non-rider at the regular time
     t = menu_call("0503333334").press("1")
-    assert "בין הזמנים" in t and "הכניסה שלך עודכנה" in t
+    assert "בין הזמנים" in t and "הכניסה שלך להיום נרשמה" in t
     at(2026, 12, 7, 2, 40)                                           # non-rider later: no notice
     assert "בין הזמנים" not in menu_call("0503333334").press("1")
     at(2026, 11, 17, 1, 0)                                           # regular night: no notice
@@ -423,9 +421,9 @@ def test_driver_shuttle_also_clocks_in():
     c = menu_call("0504444444")
     c.press("3")
     t = c.press("1")
-    assert "נשלחת ל" in t and "היציאה שלך אתמול" in t               # same rules as key 1
+    assert "נשלחת ל" in t and "היציאה האחרונה שלך" in t               # same rules as key 1
     t = c.press("1")
-    assert "הכניסה שלך עודכנה בהצלחה לשעה 2 ו 25 דקות" in t and "נסיעה למירון" in t
+    assert "הכניסה שלך להיום נרשמה לשעה 2 ו 25 דקות" in t and "נסיעה למירון" in t
     assert len(attendance("400")) == 2
     SENT.clear()
     for h, m in ((0, 40), (1, 26), (18, 0)):                         # outside 0:45-1:25: nothing is sent
@@ -558,14 +556,14 @@ def test_clock_in_opening_times():
     o.start()
     assert "ייפתח בשעה 1 ו 30 דקות" in o.press("1")
     at(2026, 11, 17, 0, 50)
-    assert "הכניסה שלך עודכנה" in menu_call("0503333331").press("1")
+    assert "הכניסה שלך להיום נרשמה" in menu_call("0503333331").press("1")
     assert "ייפתח בשעה 1 ו 30 דקות" in menu_call("0503333334").press("1")
     at(2026, 11, 17, 7, 31)                                          # after the session: next opening tomorrow
     assert "ייפתח בשעה 1 ו 30 דקות" in menu_call("0503333334").press("1")
     at(2026, 12, 6, 1, 40)                                           # Chanuka: riders open at 1:45
     assert "ייפתח בשעה 1 ו 45 דקות" in menu_call("0503333331").press("1")
     t = menu_call("0503333334").press("1")                           # others: regular 1:30
-    assert "הכניסה שלך עודכנה" in t
+    assert "הכניסה שלך להיום נרשמה" in t
 
 
 def test_uman_not_asked_in_cheshvan():
@@ -590,7 +588,7 @@ def test_meron_rider_recorded_at_2_25():
     assert "לשעה 2 ו 40 דקות" in t
     at(2026, 12, 6, 2, 0)                                            # bein hazmanim: window 1:45-2:25, recorded 3:25
     c = menu_call("0503333331")
-    assert "היציאה שלך" in c.press("1")                               # the earlier night is asked about first
+    assert "היציאה האחרונה שלך" in c.press("1")                               # the earlier night is asked about first
     t = c.press("1")
     assert "לשעה 3 ו 25 דקות" in t and "נסיעה למירון" in t
     at(2026, 11, 17, 1, 35)                                          # not a rider: real time

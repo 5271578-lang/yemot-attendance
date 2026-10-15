@@ -377,10 +377,10 @@ def prev_exit_info(rid):
 
 def ask_prev_exit(r, rid):
     row, d, current = prev_exit_info(rid)
-    tonight = schedule.session_date(call_start(r))
-    when = r.t("when_yesterday") if d == tonight - timedelta(days=1) else r.t("when_day", weekday=WEEKDAYS[r.lang][d.weekday()])
+    hy, hm, hd = hebcal.from_gregorian(d)
+    date = f"{hd} ב{hebcal.month_name(hm, hy, 'he')}" if r.lang != "en" else f"{hd} {hebcal.month_name(hm, hy, 'en')}"
     # up to 4 digits: "1" alone is accepted after a short pause (or 1 then #)
-    r.ask("prev_exit_answer", r.t("prev_exit", when=when, time=r.time(current)), digits=4, timeout=5, rid=rid)
+    r.ask("prev_exit_answer", r.t("prev_exit", date=date, time=r.time(current)), digits=4, timeout=5, rid=rid)
 
 
 def parse_hhmm(answer, d):
@@ -402,15 +402,7 @@ def prev_exit_answer(r, answer, rid):
     if t is None or t <= db.parse(row["clock_in"]):
         r.say(r.t("bad_time"))
         return ask_prev_exit(r, rid)
-    r.ask("prev_exit_confirm", r.t("exit_repeat", time=r.time(t)), allowed=["1", "2"], rid=rid, t=t.isoformat())
-
-
-@step
-def prev_exit_confirm(r, answer, rid, t):
-    if answer != "1":
-        return ask_prev_exit(r, rid)
-    set_exit(rid, db.parse(t))
-    r.say(r.t("exit_saved"))
+    set_exit(rid, t)
     finish_clock_in(r)
 
 
@@ -427,10 +419,12 @@ def finish_clock_in(r):
     with db.connect() as c:
         c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, meron, actual_in) "
                   "VALUES (?,?,?,?,?,?,?)", (emp["id"], rec.isoformat(), y, m, d, int(meron), t0.isoformat()))
-    r.say(r.t("entry_saved", time=r.time(rec)))
     if meron:
-        r.say(r.t("meron_saved"))
-    r.say(r.t("goodbye")).hangup()
+        r.say(r.t("entry_saved", time=r.time(rec)).replace(". בהצלחה", "").replace(". Good luck", ""))
+        r.say(r.t("meron_saved")).say(r.t("good_luck"))
+    else:
+        r.say(r.t("entry_saved", time=r.time(rec)))
+    r.hangup()
 
 
 # ---- 2: early exit ------------------------------------------------------
