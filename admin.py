@@ -565,7 +565,7 @@ def day_payroll():
     days = schedule.day_dates(hy, hm)
     total = round(sum(r["total"] for r in rows), 2)
     body = """<h1>Day kollel · {{ title }}</h1>
-<p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} · {{ days|length }} kollel days (Sun–Thu, 16:00–19:00) ·
+<p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} · {{ days|length }} kollel days (Sun–Thu, 16:00–19:00, clock-in from 15:00) ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
 <form method="post" action="{{ url_for('admin.send_day_report', hy=hy, hm=hm) }}" style="display:inline">
 <button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
@@ -580,8 +580,8 @@ def day_payroll():
 {% else %}<tr><td colspan="8" class="muted">No avrechim are marked "Day kollel" yet (Employees → edit).</td></tr>{% endfor %}
 </table></div>
 <p class="muted">800 ₪ a month divided by the month's kollel hours, for the hours present. 200 ₪ a month divided by the
-month's kollel days, for each day he came by 16:10. Nisan, Tishrei and Av: no kollel, paid the average of the last 3 months.
-No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavuos, Lag BaOmer and 1 Elul.</p>"""
+month's kollel days, for each day he came by 16:00. Nisan, Tishrei and Av (kollel until 7 Av): paid the average of the last 3 months.
+No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavuos, Lag BaOmer, and 8 Av to 1 Elul.</p>"""
     return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
                 total=total, title=f"{hebcal.month_name(hm, hy)} {hy}", msg=request.args.get("msg"))
 

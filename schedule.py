@@ -153,10 +153,11 @@ def next_opening(emp, dt):
 
 DAY_START = time(16, 0)
 DAY_END = time(19, 0)
-DAY_OPENS = time(15, 30)
+DAY_OPENS = time(15, 0)                 # mincha at 15:40, the kollel from 16:00
 DAY_MONTHLY_BASE = 800          # divided by the month's kollel hours
-DAY_MONTHLY_KEEP_TIME = 200     # divided by the month's kollel days, for each day he came on time (up to 10 min late)
-DAY_VACATION_MONTHS = (1, 7, 5)     # Nisan, Tishrei, Av: no kollel, paid the average of the last 3 months
+DAY_MONTHLY_KEEP_TIME = 200     # divided by the month's kollel days, for each day he came by 16:00 exactly
+DAY_VACATION_MONTHS = (1, 7, 5)     # Nisan, Tishrei, Av: paid the average of the last 3 months
+DAY_AV_LAST_DAY = 7                 # in Av there is kollel until 7 Av (attendance is recorded; the month is paid by average)
 DAY_AVERAGE_OF = 3
 
 
@@ -174,7 +175,7 @@ def day_kollel_on(d):
     if d.weekday() not in (6, 0, 1, 2, 3):
         return False
     y, m, dd = hebcal.from_gregorian(d)
-    if m in DAY_VACATION_MONTHS or (m, dd) == (6, 1):         # Nisan, Tishrei, Av, and 1 Elul (2nd day of Rosh Chodesh)
+    if m in (1, 7) or (m == 5 and dd > DAY_AV_LAST_DAY) or (m, dd) == (6, 1):   # Nisan, Tishrei, 8 Av - 1 Elul
         return False
     chanuka = hebcal.to_gregorian(y, 9, 25)
     if chanuka <= d <= chanuka + timedelta(days=7):
@@ -233,7 +234,7 @@ def day_month_summary(emp, hy, hm, until=None):
             lo, hi = max(cin, start), min(cout, end)
             if hi > lo:
                 minutes += (hi - lo).total_seconds() / 60
-        if min(db.parse(r["clock_in"]) for r in recs) <= start + timedelta(minutes=LATE_GRACE_MINUTES):
+        if min(db.parse(r["clock_in"]) for r in recs) <= start:          # day kollel: exactly 16:00
             kept += 1
     held_minutes = len(upto) * 180
     base = round(minutes * per_minute, 2)

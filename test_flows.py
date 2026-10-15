@@ -812,7 +812,8 @@ def test_day_kollel():
     assert a["program"] == "day"
     # day-only avrech at night: closed, opens tomorrow 15:30
     at(d.year, d.month, d.day + 1, 1, 40)
-    assert "ייפתח בשעה 15 ו 30 דקות" in menu_call("0503333332").press("1")
+    assert "ייפתח בשעה 15" in menu_call("0503333332").press("1")
+    assert "ייפתח בשעה 15 ו" not in menu_call("0503333332").press("1")           # 15:00 exactly
     # a night member at night still clocks in to the night kollel
     t = menu_call("0503333334").press("1")
     assert "נרשמה לשעה 1 ו 40 דקות" in t and attendance("303")[0]["program"] == "night"
@@ -826,9 +827,11 @@ def test_day_kollel():
     c.press("1")
     # pay: 800 / (22 days * 3h) per hour, 200 / 22 per day on time
     s = schedule.day_month_summary(emp("301"), 5787, 8)
-    assert s["days"] == 2 and s["kept"] == 2
+    assert s["days"] == 2 and s["kept"] == 1                          # 16:05 is late in the day kollel
     expected_base = round((175 + 180) * 800 / (22 * 180), 2)        # 16:05-19:00 + 16:00-19:00 (clocked 15:50)
-    assert abs(s["base"] - expected_base) < 0.02 and abs(s["keep"] - 2 * 200 / 22) < 0.02
+    assert abs(s["base"] - expected_base) < 0.02 and abs(s["keep"] - 200 / 22) < 0.02
+    assert any(schedule.day_kollel_on(g(5787, 5, dd)) for dd in range(1, 8))      # kollel until 7 Av
+    assert not schedule.day_kollel_on(g(5787, 5, 8)) and not schedule.day_kollel_on(g(5787, 5, 20))
     # night payroll does not count the day kollel
     assert schedule.month_summary(emp("303"), 5787, 8)["nights"] == 1
     # vacation month = average of the last three kollel months
