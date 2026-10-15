@@ -720,10 +720,10 @@ def test_import_old_system_file():
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
     html = r.data.decode()
-    assert r.status_code == 200 and "<b>0</b> nights to import" in html and "6 with no matching avrech" in html
+    assert r.status_code == 200 and "<b>0</b> records to import" in html and "6 with no matching avrech" in html
     token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
     r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "create_and_import"})
-    assert "Imported 6 nights" in r.data.decode() and "Created 1 new" in r.data.decode()
+    assert "Imported 6 records" in r.data.decode() and "Created 1 new" in r.data.decode()
     e = emp("123456782")
     assert e["id_number"] == "123456782" and e["pin"] == "1480" and "משה" in e["name"]
     a = attendance("123456782")
@@ -739,7 +739,53 @@ def test_import_old_system_file():
         c.execute("UPDATE employees SET id_number='123456782', name='Moshe Y' WHERE emp_number='303'")
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
-    assert "<b>6</b> nights to import" in r.data.decode() and "Moshe Y" in r.data.decode()
+    assert "<b>6</b> records to import" in r.data.decode() and "Moshe Y" in r.data.decode()
+
+
+def test_import_excel_day_hours_and_warnings():
+    import io as _io
+    import openpyxl
+    seed()
+    with db.connect() as c:   # 303 = night only, no ID number
+        c.execute("UPDATE employees SET name='ישראל ישראלי', id_number=NULL, in_night=1, in_day=0 WHERE emp_number='303'")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "ישראלי"
+    ws.append(["דוח נוכחות"])
+    ws.append(["זהות", "שם משפחה", "שם פרטי", "כניסה", "יציאה"])
+    ws.append(["", "ישראלי", "הרב ישראל", datetime(2026, 10, 12, 2, 30), datetime(2026, 10, 12, 7, 30)])
+    ws.append(["", "ישראלי", "ישראל", datetime(2026, 10, 12, 16, 0), datetime(2026, 10, 12, 19, 0)])
+    ws2 = wb.create_sheet("זר")
+    ws2.append(["זהות", "שם משפחה", "שם פרטי", "כניסה", "יציאה"])
+    ws2.append(["111", "פלוני", "אלמוני", "13/10/26 02:30:00", "13/10/26 07:30:00"])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    raw = buf.getvalue()
+    # the same file twice in one upload: records counted once
+    r = client.post("/admin/import", headers=AUTH, data={"file": [(_io.BytesIO(raw), "a.xlsx"), (_io.BytesIO(raw), "b.xlsx")]},
+                    content_type="multipart/form-data")
+    html = r.data.decode()
+    assert "<b>2</b> records to import" in html and "2 repeated in the files" in html
+    assert "not marked as day kollel" in html and "has no ID number" in html
+    assert "does not belong to any avrech" in html and "פלוני" in html
+    token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
+    r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "import"})
+    assert "Imported 2 records" in r.data.decode()
+    progs = sorted(a["program"] for a in attendance("303"))
+    assert progs == ["day", "night"]
+
+
+def test_employees_split_by_kollel():
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='303'")
+        c.execute("UPDATE employees SET in_night=0, in_day=0 WHERE emp_number='300'")
+    night = client.get("/admin/employees?k=night", headers=AUTH).data.decode()
+    day = client.get("/admin/employees?k=day", headers=AUTH).data.decode()
+    none = client.get("/admin/employees?k=none", headers=AUTH).data.decode()
+    n303 = emp("303")["name"]
+    n300 = emp("300")["name"]
+    assert n303 in day and n303 not in night and n300 in none and n300 not in night and "In no kollel (1)" in night
 
 
 def test_waiting_messages_and_newest_first():

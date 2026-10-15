@@ -14,6 +14,7 @@ import schedule
 import report
 import importer
 import base64
+import json
 import secrets
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -42,7 +43,7 @@ th,td{border-bottom:1px solid #e3e3e3;padding:7px 9px;text-align:left;font-size:
 input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background:#1f3a5f;color:#fff;border:0;cursor:pointer}
 .muted{color:#777}.right{text-align:right}h1{font-size:22px}.wrap{overflow-x:auto}
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Night kollel</a><a href="{{ url_for('admin.day_payroll') }}">Day kollel</a>
-<a href="{{ url_for('admin.employees') }}">Employees</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
+<a href="{{ url_for('admin.employees', k='night') }}">Night avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Day avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
 <a href="{{ url_for('admin.import_page') }}">Import</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
@@ -291,8 +292,8 @@ EMP_FORM = """<form method="post">
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
 <select name="shuttle_group"><option value="">No shuttle</option>{% for g in (1,2) %}<option value="{{g}}" {% if e and e.shuttle_group==g %}selected{% endif %}>{{ 'Maor Chaim (R. Uriel Darshan)' if g == 1 else 'Darom (R. Naftali Shapira)' }}</option>{% endfor %}</select>
 <input name="hourly_rate" type="number" step="0.01" placeholder="Custom rate (optional)" value="{{ e.hourly_rate if e and e.hourly_rate is not none else '' }}">
-<label><input type="checkbox" name="in_night" {% if not e or e.in_night %}checked{% endif %}> Night kollel</label>
-<label><input type="checkbox" name="in_day" {% if e and e.in_day %}checked{% endif %}> Day kollel</label>
+<label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> Night kollel</label>
+<label><input type="checkbox" name="in_day" {% if (not e and form_day) or (e and e.in_day) %}checked{% endif %}> Day kollel</label>
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> Shuttle driver</label>
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
@@ -326,6 +327,7 @@ def phone_taken(phone, eid=None):
 @bp.route("/employees", methods=["GET", "POST"])
 def employees():
     error = None
+    kollel = request.args.get("k") if request.args.get("k") in ("night", "day", "none") else "night"
     if request.method == "POST":
         try:
             if phone_taken(request.form.get("phone")) or phone_taken(request.form.get("phone2")):
@@ -335,15 +337,25 @@ def employees():
                           "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,joined_on) "
                           "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
-            return redirect(url_for("admin.employees"))
+            return redirect(url_for("admin.employees", k="day" if request.form.get("in_day") and not request.form.get("in_night") else kollel))
         except Exception as ex:                       # duplicate number etc.
             error = str(ex)
     with db.connect() as c:
-        emps = c.execute("SELECT * FROM employees ORDER BY active DESC, name").fetchall()
-    body = """<h1>Employees</h1>{% if error %}<p class="warn">{{ error }}</p>{% endif %}
-<div class="box"><b>Add employee</b>""" + EMP_FORM + """</div>
-<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
-{% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}{% if x.phone2 %}<br><span class="muted">{{ x.phone2 }}</span>{% endif %}</td>
+        allemps = c.execute("SELECT * FROM employees ORDER BY active DESC, name").fetchall()
+    where = {"night": lambda x: x["in_night"], "day": lambda x: x["in_day"],
+             "none": lambda x: not x["in_night"] and not x["in_day"]}[kollel]
+    emps = [x for x in allemps if where(x)]
+    orphans = sum(1 for x in allemps if not x["in_night"] and not x["in_day"])
+    no_id = sum(1 for x in emps if x["active"] and not x["id_number"])
+    body = """<h1>{{ {'night': 'Night kollel avrechim', 'day': 'Day kollel avrechim', 'none': 'Avrechim in no kollel'}[kollel] }}</h1>
+<p><a href="{{ url_for('admin.employees', k='night') }}">Night kollel</a> · <a href="{{ url_for('admin.employees', k='day') }}">Day kollel</a>
+{% if orphans or kollel == 'none' %} · <a class="warn" href="{{ url_for('admin.employees', k='none') }}">In no kollel ({{ orphans }})</a>{% endif %}
+<span class="muted"> · {{ emps|length }} here. An avrech in both kollels appears on both pages.</span></p>
+{% if no_id %}<p class="warn">{{ no_id }} active avrechim here have no ID number (ת.ז).</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<div class="box"><b>Add avrech</b>""" + EMP_FORM + """</div>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>ID (ת.ז)</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
+{% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{% if x.id_number %}{{ x.id_number }}{% else %}<span class="warn">missing</span>{% endif %}</td><td>{{ x.phone or '' }}{% if x.phone2 %}<br><span class="muted">{{ x.phone2 }}</span>{% endif %}</td>
 <td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}
 <span class="muted">{{ 'night' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'day' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">not set</span>{% else %}{{ r }}{% endif %}</td>
@@ -353,6 +365,7 @@ def employees():
 <td><a href="{{ url_for('admin.edit_employee', eid=x.id) }}">edit</a></td></tr>{% endfor %}</table></div>"""
     today = schedule.session_date(db.now())
     return page(body, emps=emps, e=None, roles=ROLE_NAMES, rate=db.rate_for, error=error, langs=LANGS,
+                kollel=kollel, orphans=orphans, no_id=no_id, form_day=kollel == "day",
                 removed=lambda x: x["active"] and schedule.removed_by_rule(x, today))
 
 
@@ -360,7 +373,7 @@ def employees():
 def restore(eid):
     with db.connect() as c:
         c.execute("UPDATE employees SET restored_on=? WHERE id=?", (db.now().date().isoformat(), eid))
-    return redirect(url_for("admin.employees"))
+    return redirect(url_for("admin.employees", k="night"))
 
 
 @bp.route("/employees/<int:eid>", methods=["GET", "POST"])
@@ -374,7 +387,8 @@ def edit_employee(eid):
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
                           "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
-            return redirect(url_for("admin.employees"))
+            return redirect(url_for("admin.employees", k="night" if request.form.get("in_night") else
+                                    "day" if request.form.get("in_day") else "none"))
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
     return page("<h1>Edit employee</h1>{% if error %}<p class='warn'>{{ error }}</p>{% endif %}<div class='box'>"
@@ -501,18 +515,26 @@ Wait between attempts <input name="wait" type="number" value="120" step="30" min
 
 @bp.route("/import", methods=["GET", "POST"])
 def import_page():
-    msg, rows, token = None, None, None
+    msg, rows, token, warns, errors = None, None, None, [], []
     if request.method == "POST":
         token = request.form.get("token")
-        if "file" in request.files and request.files["file"].filename:
-            raw = request.files["file"].read()
+        files = [f for f in request.files.getlist("file") if f.filename]
+        if files:
             token = secrets.token_hex(8)
-            db.set_setting(f"import_{token}", base64.b64encode(raw).decode())
-        raw = base64.b64decode(db.get_setting(f"import_{token}", "") or "") if token else b""
-        parsed, err = importer.read_rows(raw) if raw else ([], "no file")
-        if err:
-            msg = f"Could not read the file: {err}"
-        else:
+            db.set_setting(f"import_{token}", json.dumps(
+                [[f.filename, base64.b64encode(f.read()).decode()] for f in files]))
+        stored = json.loads(db.get_setting(f"import_{token}", "") or "[]") if token else []
+        parsed = []
+        for fname, b64 in stored:
+            got, err = importer.read_rows(base64.b64decode(b64))
+            if err:
+                errors.append(f"{fname}: {err}")
+            for r in got:
+                r["sheet"] = f"{fname} / {r['sheet']}" if r["sheet"] else fname
+            parsed += got
+        if not stored:
+            msg = "No file"
+        elif parsed:
             rows = importer.match(parsed)
             action = request.form.get("action")
             if action in ("import", "create_and_import"):
@@ -521,31 +543,38 @@ def import_page():
                 added = importer.commit(rows)
                 with db.connect() as c:
                     c.execute("DELETE FROM settings WHERE key=?", (f"import_{token}",))
-                msg = f"Imported {added} nights." + (f" Created {made} new avrechim (password 1480, add their phones)." if made else "")
+                msg = f"Imported {added} records." + (f" Created {made} new avrechim (password 1480, add their phones)." if made else "")
                 rows, token = None, None
+            else:
+                warns = importer.warnings(rows)
     counts = {}
     for r in rows or []:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     body = """<h1>Import past attendance</h1>{% if msg %}<p class="warn">{{ msg }}</p>{% endif %}
+{% for e in errors %}<p class="warn">Could not read {{ e }}</p>{% endfor %}
 <div class="box"><form method="post" enctype="multipart/form-data">
-File from the old system (CSV / Excel export saved as CSV): <input type="file" name="file" required> <button>Check</button>
+Files from the old system (CSV or Excel, you can choose many at once): <input type="file" name="file" multiple required accept=".csv,.txt,.xlsx"> <button>Check</button>
 </form><p class="muted">Columns: זהות, שם משפחה, שם פרטי, כניסה, יציאה. Avrechim are matched by ID number (ת.ז), otherwise by name.
-Nothing is saved until you press Import. Nights already in the system are skipped.</p></div>
+Records between 14:00 and 20:00 go to the day kollel, the rest to the night kollel.
+Nothing is saved until you press Import. Records already in the system are skipped.</p></div>
 {% if rows %}
+{% if warns %}<div class="box" style="border-color:#c62828"><b>Please check:</b><ul>{% for w in warns %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
 <div class="box">
-<b>{{ counts.get('new', 0) }}</b> nights to import · {{ counts.get('exists', 0) }} already there ·
+<b>{{ counts.get('new', 0) }}</b> records to import · {{ counts.get('exists', 0) }} already there ·
+{{ counts.get('duplicate', 0) }} repeated in the files ·
 <span class="{{ 'warn' if counts.get('no match') else '' }}">{{ counts.get('no match', 0) }} with no matching avrech</span> ·
 {{ counts.get('bad date', 0) }} unreadable
 <form method="post" style="margin-top:10px"><input type="hidden" name="token" value="{{ token }}">
-<button name="action" value="import">Import matched nights</button>
+<button name="action" value="import">Import matched records</button>
 {% if counts.get('no match') %}<button name="action" value="create_and_import" style="background:#2e7d32">Create the missing avrechim and import all</button>{% endif %}
 </form></div>
-<div class="wrap"><table><tr><th>ID</th><th>Name in file</th><th>Matched to</th><th>In</th><th>Out</th><th>Status</th></tr>
-{% for r in rows %}<tr><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.emp.name if r.emp else '' }}</td>
+<div class="wrap"><table><tr><th>File</th><th>ID</th><th>Name in file</th><th>Matched to</th><th>Kollel</th><th>In</th><th>Out</th><th>Status</th></tr>
+{% for r in rows %}<tr><td class="muted">{{ r.sheet }}</td><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.emp.name if r.emp else '' }}</td>
+<td class="{{ 'warn' if r.emp and r.program and not r.emp['in_' + r.program] else '' }}">{{ r.program or '' }}</td>
 <td>{{ r['in'].strftime('%d/%m/%Y %H:%M') if r['in'] else '' }}</td><td>{{ r.out.strftime('%d/%m/%Y %H:%M') if r.out else '' }}</td>
-<td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status == 'exists' else '' }}">{{ r.status }}</td></tr>{% endfor %}
+<td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status in ('exists', 'duplicate') else '' }}">{{ r.status }}</td></tr>{% endfor %}
 </table></div>{% endif %}"""
-    return page(body, rows=rows, token=token, counts=counts, msg=msg)
+    return page(body, rows=rows, token=token, counts=counts, msg=msg, warns=warns, errors=errors)
 
 
 # ---- day kollel ------------------------------------------------------------
