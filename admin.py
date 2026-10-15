@@ -50,7 +50,19 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 
 
 def page(body, **ctx):
+    ctx.setdefault("data_months", data_months)
+    ctx.setdefault("program", "night")
     return render_template_string(BASE.replace("{% block body %}{% endblock %}", body), **ctx)
+
+
+def data_months(program=None):
+    """[(heb_year, heb_month, name)] of every month that has attendance records, newest first."""
+    with db.connect() as c:
+        q = "SELECT DISTINCT heb_year, heb_month FROM attendance" + (" WHERE program=?" if program else "")
+        got = c.execute(q, (program,) if program else ()).fetchall()
+    order = lambda m: (m[1] - 7) % 13            # Tishrei first within a year
+    got = sorted(((r[0], r[1]) for r in got), key=lambda m: (m[0], order(m)), reverse=True)
+    return [(y, m, f"{hebcal.month_name(m, y)} {y}") for y, m in got]
 
 
 def current_heb_month():
@@ -105,6 +117,7 @@ def payroll():
 <h1>{{ title }}</h1>
 <p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
+<br>Months with records: {% for y, m, name in data_months(program) %}<a href="?hy={{y}}&hm={{m}}" {% if y == hy and m == hm %}style="font-weight:700;text-decoration:none"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %} ·
 <a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">Download CSV</a> ·
 <form method="post" action="{{ url_for('admin.send_report', hy=hy, hm=hm) }}" style="display:inline">
 <button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
@@ -639,6 +652,7 @@ def day_payroll():
     body = """<h1>Day kollel · {{ title }}</h1>
 <p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} · {{ days|length }} kollel days (Sun–Thu, 16:00–19:00, clock-in from 15:00) ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
+<br>Months with records: {% for y, m, name in data_months(program) %}<a href="?hy={{y}}&hm={{m}}" {% if y == hy and m == hm %}style="font-weight:700;text-decoration:none"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %} ·
 <form method="post" action="{{ url_for('admin.send_day_report', hy=hy, hm=hm) }}" style="display:inline">
 <button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
 <div class="box"><b>Total: {{ '{:,.0f}'.format(total) }}</b> · all paid by Ohr Hatzadik</div>
@@ -654,7 +668,7 @@ def day_payroll():
 <p class="muted">800 ₪ a month divided by the month's kollel hours, for the hours present. 200 ₪ a month divided by the
 month's kollel days, for each day he came by 16:00. Nisan and Tishrei: the average of the last 3 months. Av: 1–7 Av by attendance, the rest of the month by the average.
 No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavuos, Lag BaOmer, and 8 Av to 1 Elul.</p>"""
-    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
+    return page(body, program="day", rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
                 total=total, title=f"{hebcal.month_name(hm, hy)} {hy}", msg=request.args.get("msg"))
 
 
