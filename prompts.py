@@ -10,6 +10,15 @@ Notes for editing:
 # To bring it back (e.g. with recorded files), add "yi" here again.
 LANGUAGES = ("he", "en")
 
+# Shuttle groups (to Meron) as they are called everywhere on the line
+GROUPS = {
+    "he": {1: "קבוצת מאור חיים, על ידי הרב אוריאל דרשן", 2: "קבוצת דרום, על ידי הרב נפתלי שפירא"},
+    "en": {1: "the Maor Chaim group, led by Rabbi Uriel Darshan", 2: "the Darom group, led by Rabbi Naftali Shapira"},
+    "yi": {1: "קבוצת מאור חיים, על ידי הרב אוריאל דרשן", 2: "קבוצת דרום, על ידי הרב נפתלי שפירא"},
+}
+GROUPS_SHORT = {"he": {1: "קבוצת מאור חיים", 2: "קבוצת דרום"}, "en": {1: "the Maor Chaim group", 2: "the Darom group"},
+                "yi": {1: "קבוצת מאור חיים", 2: "קבוצת דרום"}}
+
 WEEKDAYS = {
     "he": ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"],
     "en": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -38,6 +47,12 @@ HE = {
     "status_meron": "זכית לנסוע למירון {nights} לילות",
     "status_driver": "הסעת {drives} פעמים",
     "status_total": "סך הכל המלגה, הכל ביחד, עומדת על {amount} שקלים",
+    "settings_meron": "לשיוך לנסיעה למירון ולשינוי קבוצה הקישו 4",
+    "meron_menu": "ל{g1} הקישו 1. ל{g2} הקישו 2. להסרה מהנסיעה למירון הקישו 0",
+    "meron_group_saved": "נרשמת ל{group}",
+    "meron_removed": "הוסרת מהנסיעה למירון",
+    "waiting_one": "קיבלת הודעה מאת {sender}. לשמיעת ההודעה הקישו 1. להמשך לקו הקישו 2",
+    "waiting_many": "קיבלת {n} הודעות חדשות, האחרונה מאת {sender}. לשמיעת ההודעות הקישו 1. להמשך לקו הקישו 2",
     "invalid": "בחירה שגויה",
     "no_input": "לא התקבלה בחירה",
     "goodbye": "להתראות",
@@ -58,12 +73,12 @@ HE = {
     "not_in": "לא נמצאה כניסה הלילה. לתיקון נוכחות הקישו 5 בתפריט הראשי",
 
     # 3: shuttle (drivers)
-    "shuttle_confirm": "לאישור יציאת ההסעה של קבוצה {group} הקישו 1. לביטול הקישו 2",
+    "shuttle_confirm": "לאישור יציאת ההסעה של {group} הקישו 1. לביטול הקישו 2",
     "shuttle_no_group": "לא הוגדרה עבורך קבוצת הסעה. נא לפנות למנהל",
-    "shuttle_sent": "ההודעה נשלחת ל {count} נוסעים בקבוצה {group}",
+    "shuttle_sent": "ההודעה נשלחת ל {count} נוסעים ב{group}",
     "shuttle_nobody": "אין נוסעים עם טלפון בקבוצה זו",
     "shuttle_failed": "השליחה נכשלה. נא לפנות למנהל",
-    "shuttle_call_text": "שלום {name}. ההסעה של קבוצה {group} יצאה לדרך",
+    "shuttle_call_text": "שלום {name}. ההסעה של {group} יצאה לדרך",
 
     # 5: correction
     "fix_kind": "לתיקון שעת כניסה הקישו 1. לתיקון שעת יציאה הקישו 2",
@@ -92,10 +107,10 @@ HE = {
     "language_menu": "לעברית הקישו 1",
     "language_saved": "השפה נשמרה",
 
-    "send_menu_onsite": "לכל העובדים במשמרת שלך הקישו 1. לקבוצת הסעה 1 הקישו 2. "
-                        "לקבוצת הסעה 2 הקישו 3. לעובד מסוים הקישו 4",
-    "send_menu_tech": "לכל העובדים הקישו 1. לקבוצת הסעה 1 הקישו 2. "
-                      "לקבוצת הסעה 2 הקישו 3. לעובד מסוים הקישו 4",
+    "send_menu_onsite": "לכל העובדים במשמרת שלך הקישו 1. לקבוצת מאור חיים הקישו 2. "
+                        "לקבוצת דרום הקישו 3. לעובד מסוים הקישו 4",
+    "send_menu_tech": "לכל העובדים הקישו 1. לקבוצת מאור חיים הקישו 2. "
+                      "לקבוצת דרום הקישו 3. לעובד מסוים הקישו 4",
     "enter_target": "נא להקיש את מספר העובד, ובסיום סולמית",
     "target_not_found": "העובד לא נמצא",
     "target_not_in_shift": "העובד אינו שייך למשמרת שלך",
@@ -144,6 +159,12 @@ EN = {
     "status_meron": "You travelled to Meron {nights} nights",
     "status_driver": "You drove the shuttle {drives} times",
     "status_total": "Your total, all together, is {amount} shekels",
+    "settings_meron": "To join the trip to Meron or change your group, press 4",
+    "meron_menu": "For {g1}, press 1. For {g2}, press 2. To stop travelling to Meron, press 0",
+    "meron_group_saved": "You were registered to {group}",
+    "meron_removed": "You were removed from the trip to Meron",
+    "waiting_one": "You have a message from {sender}. To hear it, press 1. To continue, press 2",
+    "waiting_many": "You have {n} new messages, the latest from {sender}. To hear them, press 1. To continue, press 2",
     "invalid": "Invalid choice",
     "no_input": "No choice was received",
     "goodbye": "Goodbye",
@@ -159,12 +180,12 @@ EN = {
                   "The current bein hazmanim continues until {date}",
     "early_exit_saved": "Your early exit was recorded at {time}",
     "not_in": "No clock in was found tonight. To correct attendance, press 5 in the main menu",
-    "shuttle_confirm": "To confirm that the shuttle of group {group} is leaving, press 1. To cancel, press 2",
+    "shuttle_confirm": "To confirm that the shuttle of {group} is leaving, press 1. To cancel, press 2",
     "shuttle_no_group": "You have no shuttle group. Please contact the manager",
-    "shuttle_sent": "The message is being sent to {count} passengers in group {group}",
+    "shuttle_sent": "The message is being sent to {count} passengers in {group}",
     "shuttle_nobody": "No passengers with a phone in this group",
     "shuttle_failed": "Sending failed. Please contact the manager",
-    "shuttle_call_text": "Hello {name}. The shuttle of group {group} has left",
+    "shuttle_call_text": "Hello {name}. The shuttle of {group} has left",
     "fix_kind": "To correct a clock in time, press 1. To correct an exit time, press 2",
     "fix_day": "For tonight, press 1. For the previous night, press 2",
     "fix_time": "Enter the time in four digits. For example, for two thirty, press 0 2 3 0",
@@ -188,10 +209,10 @@ EN = {
     "pin_saved": "Your password was changed",
     "language_menu": "For English, press 2",
     "language_saved": "The language was saved",
-    "send_menu_onsite": "For all employees in your shift, press 1. For shuttle group 1, press 2. "
-                        "For shuttle group 2, press 3. For a specific employee, press 4",
-    "send_menu_tech": "For all employees, press 1. For shuttle group 1, press 2. "
-                      "For shuttle group 2, press 3. For a specific employee, press 4",
+    "send_menu_onsite": "For all employees in your shift, press 1. For the Maor Chaim group, press 2. "
+                        "For the Darom group, press 3. For a specific employee, press 4",
+    "send_menu_tech": "For all employees, press 1. For the Maor Chaim group, press 2. "
+                      "For the Darom group, press 3. For a specific employee, press 4",
     "enter_target": "Enter the employee number, then press pound",
     "target_not_found": "Employee not found",
     "target_not_in_shift": "This employee is not in your shift",
@@ -238,6 +259,12 @@ YI = {
     "status_meron": "איר האט זוכה געווען צו פארן קיין מירון {nights} נעכט",
     "status_driver": "איר האט געפירט דעם שאטל {drives} מאל",
     "status_total": "סך הכל, אלעס צוזאמען, איז {amount} שקל",
+    "settings_meron": "צו זיך איינשרייבן צו פארן קיין מירון אדער טוישן די גרופע דריקט 4",
+    "meron_menu": "פאר {g1} דריקט 1. פאר {g2} דריקט 2. זיך אויסשרייבן פון פארן קיין מירון דריקט 0",
+    "meron_group_saved": "איר זענט איינגעשריבן אין {group}",
+    "meron_removed": "איר זענט אויסגעשריבן פון פארן קיין מירון",
+    "waiting_one": "איר האט א מעסעדזש פון {sender}. צו הערן דריקט 1. ווייטער דריקט 2",
+    "waiting_many": "איר האט {n} נייע מעסעדזשעס, די לעצטע פון {sender}. צו הערן דריקט 1. ווייטער דריקט 2",
     "invalid": "נישט ריכטיגע ברירה",
     "no_input": "קיין ברירה איז נישט אנגעקומען",
     "goodbye": "א גוטן טאג",
@@ -254,12 +281,12 @@ YI = {
                   "דער יעצטיגער בין הזמנים געדויערט ביז {date}",
     "early_exit_saved": "די פריערדיגע ארויסגיין איז פארשריבן אום {time}",
     "not_in": "מען האט נישט געטראפן קיין אריינקומען היינט ביינאכט. צו פאררעכטן דריקט 5 אין הויפט מעניו",
-    "shuttle_confirm": "צו באשטעטיגן אז דער שאטל פון גרופע {group} פארט ארויס דריקט 1. צו בטל מאכן דריקט 2",
+    "shuttle_confirm": "צו באשטעטיגן אז דער שאטל פון {group} פארט ארויס דריקט 1. צו בטל מאכן דריקט 2",
     "shuttle_no_group": "איר האט נישט קיין שאטל גרופע. ביטע ווענדט זיך צום פארוואלטער",
-    "shuttle_sent": "די מעסעדזש ווערט געשיקט צו {count} פאסאזשירן אין גרופע {group}",
+    "shuttle_sent": "די מעסעדזש ווערט געשיקט צו {count} פאסאזשירן אין {group}",
     "shuttle_nobody": "קיין פאסאזשירן מיט א טעלעפאן אין די גרופע",
     "shuttle_failed": "דאס שיקן איז נישט געלונגען. ביטע ווענדט זיך צום פארוואלטער",
-    "shuttle_call_text": "שלום {name}. דער שאטל פון גרופע {group} איז ארויסגעפארן",
+    "shuttle_call_text": "שלום {name}. דער שאטל פון {group} איז ארויסגעפארן",
     "fix_kind": "צו פאררעכטן אריינקומען צייט דריקט 1. צו פאררעכטן ארויסגיין צייט דריקט 2",
     "fix_day": "פאר היינט ביינאכט דריקט 1. פאר די פריערדיגע נאכט דריקט 2",
     "fix_time": "דריקט די צייט מיט פיר ציפערן. למשל, פאר האלב דריי דריקט 0 2 3 0",

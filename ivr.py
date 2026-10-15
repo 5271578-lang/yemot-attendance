@@ -21,7 +21,7 @@ import db
 import hebcal
 import nbs
 import schedule
-from prompts import LANGUAGES, WEEKDAYS, say_time, text
+from prompts import GROUPS, GROUPS_SHORT, LANGUAGES, WEEKDAYS, say_time, text
 
 bp = Blueprint("ivr", __name__)
 
@@ -242,6 +242,31 @@ def after_sign_in(r):
     if emp["shuttle_group"] and emp["shuttle_calls"] is None:
         r.say(r.t("shuttle_first"))
         return ask_shuttle_calls(r)
+    menu_or_waiting(r)
+
+
+def unheard(emp_id):
+    with db.connect() as c:
+        return c.execute("SELECT rc.id, s.name AS sender FROM message_recipients rc JOIN messages m ON m.id=rc.message_id "
+                         "JOIN employees s ON s.id=m.sender_id WHERE rc.employee_id=? AND rc.listened_at IS NULL "
+                         "ORDER BY m.created_at DESC", (emp_id,)).fetchall()
+
+
+def menu_or_waiting(r):
+    """Right after sign-in: if messages are waiting, offer to hear them first."""
+    if not r.s["data"].get("waiting_asked"):
+        r.s["data"]["waiting_asked"] = True
+        waiting = unheard(r.s["employee_id"])
+        if waiting:
+            key = "waiting_one" if len(waiting) == 1 else "waiting_many"
+            return r.ask("waiting_choice", r.t(key, sender=waiting[0]["sender"], n=len(waiting)), allowed=["1", "2"])
+    main_menu(r)
+
+
+@step
+def waiting_choice(r, answer):
+    if answer == "1":
+        return start_listening(r, employee(r))
     main_menu(r)
 
 
@@ -262,7 +287,7 @@ def uman_answer(r, answer, year):
     if emp["shuttle_group"] and emp["shuttle_calls"] is None:
         r.say(r.t("shuttle_first"))
         return ask_shuttle_calls(r)
-    main_menu(r)
+    menu_or_waiting(r)
 
 
 def ask_shuttle_calls(r):
@@ -275,7 +300,7 @@ def shuttle_calls_set(r, answer):
     with db.connect() as c:
         c.execute("UPDATE employees SET shuttle_calls=? WHERE id=?", (n, r.s["employee_id"]))
     r.say(r.t("shuttle_calls_saved", n=n))
-    main_menu(r)
+    menu_or_waiting(r)
 
 
 # ---- main menu -----------------------------------------------------------
@@ -433,7 +458,7 @@ def shuttle(r):
     if not emp["shuttle_group"]:
         r.say(r.t("shuttle_no_group"))
         return main_menu(r)
-    r.ask("shuttle_choice", r.t("shuttle_confirm", group=emp["shuttle_group"]), allowed=["1", "2"])
+    r.ask("shuttle_choice", r.t("shuttle_confirm", group=GROUPS_SHORT[r.lang].get(emp["shuttle_group"], emp["shuttle_group"])), allowed=["1", "2"])
 
 
 def shuttle_recipients(driver):
@@ -454,7 +479,8 @@ def shuttle_choice(r, answer):
     if not people:
         r.say(r.t("shuttle_nobody"))
         return driver_clock_in(r)
-    texts = {e["phone"]: text(e["language"], "shuttle_call_text", name=e["name"], group=driver["shuttle_group"])
+    texts = {e["phone"]: text(e["language"], "shuttle_call_text", name=e["name"],
+                                    group=GROUPS_SHORT.get(e["language"], GROUPS_SHORT["he"]).get(driver["shuttle_group"], ""))
              for e in people}
     attempts = {e["phone"]: min(max(e["shuttle_calls"] or 1, 1), MAX_SHUTTLE_CALLS) for e in people}
     ok, info = nbs.run_tts_calls_with_attempts(texts, attempts)
@@ -465,7 +491,7 @@ def shuttle_choice(r, answer):
                                            info if ok else None, "sent" if ok else info))
     if not ok:
         return r.say(r.t("shuttle_failed")).hangup()
-    r.say(r.t("shuttle_sent", count=len(people), group=driver["shuttle_group"]))
+    r.say(r.t("shuttle_sent", count=len(people), group=GROUPS_SHORT[r.lang].get(driver["shuttle_group"], "")))
     driver_clock_in(r)
 
 
@@ -575,13 +601,15 @@ def switch_user(r):
     r.s["employee_id"] = None
     r.s["data"]["own_phone"] = False
     r.s["data"]["attempts"] = 0
+    r.s["data"]["waiting_asked"] = False
     r.say(r.t("switch_user"))
     ask_phone(r)
 
 
 def settings_menu(r):
     emp = employee(r)
-    txt, keys = r.t("settings_rest"), ["2", "3", "0"]
+    txt, keys = r.t("settings_rest"), ["2", "3", "4", "0"]
+    txt = r.t("settings_meron") + ". " + txt
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     r.ask("settings_choice", txt, allowed=keys)
@@ -591,12 +619,29 @@ def settings_menu(r):
 def settings_choice(r, answer):
     if answer == "1" and employee(r)["shuttle_group"]:
         return ask_shuttle_calls(r)
+    if answer == "4":
+        return r.ask("meron_group_set", r.t("meron_menu", g1=GROUPS[r.lang][1], g2=GROUPS[r.lang][2]),
+                     allowed=["1", "2", "0"])
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         keys = {"he": "1", "en": "2", "yi": "3"}
         return r.ask("language_set", menu, allowed=[keys[lang] for lang in LANGUAGES])
+    main_menu(r)
+
+
+@step
+def meron_group_set(r, answer):
+    group = int(answer) or None
+    with db.connect() as c:
+        c.execute("UPDATE employees SET shuttle_group=? WHERE id=?", (group, r.s["employee_id"]))
+    if group is None:
+        r.say(r.t("meron_removed"))
+        return main_menu(r)
+    r.say(r.t("meron_group_saved", group=GROUPS_SHORT[r.lang][group]))
+    if employee(r)["shuttle_calls"] is None:
+        return ask_shuttle_calls(r)
     main_menu(r)
 
 
@@ -637,7 +682,7 @@ def start_listening(r, emp):
         rows = c.execute(
             "SELECT r.id FROM message_recipients r JOIN messages m ON m.id=r.message_id "
             "WHERE r.employee_id=? AND (r.listened_at IS NULL OR m.created_at>=?) "
-            "ORDER BY (r.listened_at IS NOT NULL), m.created_at", (emp["id"], since)).fetchall()
+            "ORDER BY (r.listened_at IS NOT NULL), m.created_at DESC", (emp["id"], since)).fetchall()
     ids = [x["id"] for x in rows]
     if not ids:
         r.say(r.t("no_messages"))
@@ -758,7 +803,7 @@ def target_label(target, recipients):
     if target["type"] == "driver_group":
         return "קבוצת ההסעה של הנהג והנהגים"
     return {"shift": "כל העובדים", "managers": "המנהלים"}.get(target["type"]) or (
-        f"קבוצת הסעה {target['group']}" if target["type"] == "group" else
+        GROUPS_SHORT["he"].get(target["group"], f"קבוצה {target['group']}") if target["type"] == "group" else
         (recipients[0]["name"] if recipients else "עובד"))
 
 

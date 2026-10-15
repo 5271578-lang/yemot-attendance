@@ -107,6 +107,8 @@ class Call:
 def menu_call(phone):
     c = Call(phone)
     t = c.start()
+    if "להמשך לקו הקישו 2" in t:                                   # messages waiting: skip to the menu
+        t = c.press("2")
     assert "לעדכון כניסה הקישו 1" in t, t
     return c
 
@@ -740,6 +742,41 @@ def test_import_old_system_file():
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
     assert "<b>6</b> nights to import" in r.data.decode() and "Moshe Y" in r.data.decode()
+
+
+def test_waiting_messages_and_newest_first():
+    seed()
+    rung = []
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
+    for name in ("/8/old.wav", "/8/new.wav"):
+        c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("2"); c.press(name)
+        NOW[0] += timedelta(minutes=5)
+    w = Call("0503333331")
+    t = w.start()
+    assert "קיבלת 2 הודעות חדשות, האחרונה מאת Site Mgr A" in t and "להמשך לקו הקישו 2" in t
+    t = w.press("1")
+    assert "1 מתוך 2" in t and "f-/8/new" in t                      # newest first
+    assert "f-/8/old" in w.press("2")
+    w = Call("0503333331")
+    assert "קיבלת" not in w.start()                                  # all heard: straight to the menu
+
+
+def test_meron_group_in_settings():
+    seed()
+    c = menu_call("0503333334")                                      # no group yet
+    t = c.press("9")
+    assert "לשיוך לנסיעה למירון ולשינוי קבוצה הקישו 4" in t and "מספר השיחות" not in t
+    t = c.press("4")
+    assert "לקבוצת מאור חיים, על ידי הרב אוריאל דרשן הקישו 1" in t and "לקבוצת דרום, על ידי הרב נפתלי שפירא הקישו 2" in t
+    t = c.press("2")
+    assert "נרשמת לקבוצת דרום" in t and "כמה פעמים להתקשר" in t
+    c.press("3")
+    assert emp("303")["shuttle_group"] == 2 and emp("303")["shuttle_calls"] == 3
+    c = menu_call("0503333334"); c.press("9"); c.press("4")
+    assert "הוסרת מהנסיעה למירון" in c.press("0") and emp("303")["shuttle_group"] is None
+    at(2026, 11, 17, 0, 55)
+    d = menu_call("0504444444"); d.press("3")
+    assert "לאישור יציאת ההסעה של קבוצת מאור חיים" in d.last
 
 
 def test_hangup_notice():
