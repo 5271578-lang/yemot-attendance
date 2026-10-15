@@ -862,6 +862,22 @@ def test_day_kollel():
     assert "כולל יום" in subject and "Worker A2" in html and "אור הצדיק" in html
 
 
+def test_additional_phone():
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET phone2='0587777777' WHERE emp_number='300'")
+    assert "שלום Worker A1" in Call("058-777-7777").start()            # recognised by the additional phone
+    o = Call(); o.start(); o.press("0587777777")
+    assert "שלום Worker A1" in o.press("3331")                          # signs in with it too
+    r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "600", "name": "X", "role": "employee",
+                                                             "phone": "0509999990", "phone2": "0587777777"})
+    assert b"already belongs" in r.data
+    r = client.post(f"/admin/employees/{emp('301')['id']}", headers=AUTH, data={
+        "emp_number": "301", "name": "Worker A2", "role": "employee", "phone": "0503333332", "phone2": "0581111222",
+        "pin": "3332", "in_night": "on", "active": "on"})
+    assert r.status_code == 302 and emp("301")["phone2"] == "0581111222"
+
+
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
 

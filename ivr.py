@@ -198,9 +198,10 @@ def call_start(r):
 
 
 def find_by_phone(phone):
+    """Recognised by the main phone or by the additional phone."""
     with db.connect() as c:
-        return [e for e in c.execute("SELECT * FROM employees WHERE active=1 AND phone IS NOT NULL")
-                if db.normalize_phone(e["phone"]) == phone]
+        return [e for e in c.execute("SELECT * FROM employees WHERE active=1 AND (phone IS NOT NULL OR phone2 IS NOT NULL)")
+                if phone in (db.normalize_phone(e["phone"]), db.normalize_phone(e["phone2"]))]
 
 
 # ---- sign in with phone number + password --------------------------------

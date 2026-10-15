@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS employees (
     joined_on TEXT,
     restored_on TEXT,
     id_number TEXT,
+    phone2 TEXT,
     in_night INTEGER NOT NULL DEFAULT 1,
     in_day INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1
@@ -128,7 +129,8 @@ def connect():
 MIGRATIONS = {
     "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'"),
                   ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT"),
-                  ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0")],
+                  ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0"),
+                  ("phone2", "TEXT")],
     "message_recipients": [("announced_at", "TEXT")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
                    ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT"),

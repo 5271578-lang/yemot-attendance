@@ -282,7 +282,8 @@ EMP_FORM = """<form method="post">
 <input name="emp_number" placeholder="Employee no." value="{{ e.emp_number if e else '' }}" required>
 <input name="name" placeholder="Name" value="{{ e.name if e else '' }}" required>
 <input name="id_number" placeholder="ID number (ת.ז)" value="{{ (e.id_number or '') if e else '' }}">
-<input name="phone" placeholder="Phone (sign-in + caller ID)" value="{{ (e.phone or '') if e else '' }}">
+<input name="phone" placeholder="Phone (calls go here)" value="{{ (e.phone or '') if e else '' }}">
+<input name="phone2" placeholder="Additional phone" value="{{ (e.phone2 or '') if e else '' }}">
 <input name="pin" placeholder="Password (empty = 1480)" value="{{ e.pin if e else '' }}" pattern="[0-9]{4,8}" title="4-8 digits. Empty = the default 1480">
 <select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
@@ -306,7 +307,8 @@ def emp_values(form):
             form.get("language") if form.get("language") in LANGS else "he",
             int(form["shuttle_calls"]) if form.get("shuttle_calls") else None,
             form.get("id_number", "").strip() or None,
-            1 if form.get("in_night") else 0, 1 if form.get("in_day") else 0)
+            1 if form.get("in_night") else 0, 1 if form.get("in_day") else 0,
+            form.get("phone2", "").strip() or None)
 
 
 def phone_taken(phone, eid=None):
@@ -314,8 +316,8 @@ def phone_taken(phone, eid=None):
     if not p:
         return False
     with db.connect() as c:
-        return any(db.normalize_phone(x["phone"]) == p for x in
-                   c.execute("SELECT phone FROM employees WHERE phone IS NOT NULL AND id<>?", (eid or -1,)))
+        return any(p in (db.normalize_phone(x["phone"]), db.normalize_phone(x["phone2"])) for x in
+                   c.execute("SELECT phone, phone2 FROM employees WHERE id<>?", (eid or -1,)))
 
 
 @bp.route("/employees", methods=["GET", "POST"])
@@ -323,11 +325,11 @@ def employees():
     error = None
     if request.method == "POST":
         try:
-            if phone_taken(request.form.get("phone")):
+            if phone_taken(request.form.get("phone")) or phone_taken(request.form.get("phone2")):
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,id_number,in_night,in_day,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,in_night,in_day,phone2,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees"))
         except Exception as ex:                       # duplicate number etc.
@@ -337,7 +339,7 @@ def employees():
     body = """<h1>Employees</h1>{% if error %}<p class="warn">{{ error }}</p>{% endif %}
 <div class="box"><b>Add employee</b>""" + EMP_FORM + """</div>
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
-{% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}</td>
+{% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}{% if x.phone2 %}<br><span class="muted">{{ x.phone2 }}</span>{% endif %}</td>
 <td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}
 <span class="muted">{{ 'night' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'day' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">not set</span>{% else %}{{ r }}{% endif %}</td>
@@ -361,12 +363,12 @@ def restore(eid):
 def edit_employee(eid):
     error = None
     if request.method == "POST":
-        if phone_taken(request.form.get("phone"), eid):
+        if phone_taken(request.form.get("phone"), eid) or phone_taken(request.form.get("phone2"), eid):
             error = "This phone number already belongs to another employee"
         else:
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
-                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, active=? WHERE id=?",
+                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees"))
     with db.connect() as c:
