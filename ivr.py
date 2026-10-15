@@ -284,9 +284,10 @@ def uman_answer(r, answer, year):
                   "VALUES (?,?,?,?,?,?)", (emp["id"], year, int(went), db.now().isoformat(), pct,
                                            ", ".join(d.isoformat() for d, _ in nights)))
         for d, amount in nights:
-            hy, hm, hd = hebcal.from_gregorian(d)
+            cy, cm, hd = hebcal.from_gregorian(d)
+            hy, hm = schedule.night_month_of(d)
             c.execute("INSERT INTO bonuses(employee_id, heb_year, heb_month, amount, note) VALUES (?,?,?,?,?)",
-                      (emp["id"], hy, hm, amount, f"Uman {hd} {hebcal.month_name(hm, hy, 'he')} ({round(pct * 100)}%)"))
+                      (emp["id"], hy, hm, amount, f"Uman {hd} {hebcal.month_name(cm, cy, 'he')} ({round(pct * 100)}%)"))
     r.say(r.t("uman_yes" if went else "uman_no"))
     if emp["shuttle_group"] and emp["shuttle_calls"] is None:
         r.say(r.t("shuttle_first"))
@@ -556,6 +557,8 @@ def status(r):
         return main_menu(r)
     if schedule.in_day(emp):
         r.say(r.t("status_night_title"))
+    hy, hm = schedule.night_month_of(today)
+    month = hebcal.month_name(hm, hy, "en" if r.lang == "en" else "he")
     s = schedule.month_summary(emp, hy, hm, until=today)
     pct = round(s["percent"] * 100)
     r.say(r.t("status_month", month=month, nights=s["nights"], whole=s["whole"], early=s["early"], pct=pct))

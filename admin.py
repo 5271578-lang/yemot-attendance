@@ -55,23 +55,29 @@ def page(body, **ctx):
     return render_template_string(BASE.replace("{% block body %}{% endblock %}", body), **ctx)
 
 
-def data_months(program=None):
-    """[(heb_year, heb_month, name)] of every month that has attendance records, newest first."""
+def data_months(program="night"):
+    """[(heb_year, heb_month, name)] of every month that has attendance records, newest first.
+    Night months run from the 27th to the 26th."""
     with db.connect() as c:
-        q = "SELECT DISTINCT heb_year, heb_month FROM attendance" + (" WHERE program=?" if program else "")
-        got = c.execute(q, (program,) if program else ()).fetchall()
+        if program == "night":
+            got = {schedule.night_month_of(schedule.session_date(db.parse(x["clock_in"])))
+                   for x in c.execute("SELECT clock_in FROM attendance WHERE program='night'")}
+        else:
+            got = {(x[0], x[1]) for x in c.execute("SELECT DISTINCT heb_year, heb_month FROM attendance WHERE program=?", (program,))}
     order = lambda m: (m[1] - 7) % 13            # Tishrei first within a year
-    got = sorted(((r[0], r[1]) for r in got), key=lambda m: (m[0], order(m)), reverse=True)
+    got = sorted(got, key=lambda m: (m[0], order(m)), reverse=True)
     return [(y, m, f"{hebcal.month_name(m, y)} {y}") for y, m in got]
 
 
-def current_heb_month():
+def current_heb_month(night=True):
+    if night:
+        return schedule.night_month_of(schedule.session_date(db.now()))
     y, m, _ = hebcal.from_gregorian(db.now().date())
     return y, m
 
 
-def month_args():
-    cy, cm = current_heb_month()
+def month_args(night=True):
+    cy, cm = current_heb_month(night)
     return int(request.args.get("hy", cy)), int(request.args.get("hm", cm))
 
 
@@ -110,7 +116,7 @@ def payroll_rows(hy, hm):
 def payroll():
     hy, hm = month_args()
     rows = payroll_rows(hy, hm)
-    first, last = hebcal.month_range(hy, hm)
+    first, last = schedule.night_month_range(hy, hm)
     py, pm = hebcal.prev_month(hy, hm)
     ny, nm = hebcal.next_month(hy, hm)
     body = """
@@ -140,7 +146,7 @@ def payroll():
 all together <b>{{ '{:,.0f}'.format(t.total) }}</b> · to Kollel Chatzos Jerusalem (Tzfas) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 Ohr Hatzadik <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
 <div class="muted">Meron (35 a night, 60 for driving) → Jerusalem. 70/80% bonuses → Ohr Hatzadik. The rest: half each.</div></div>
-<p class="muted">Nightly: 80 × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30), +20 up to 10 minutes late,
+<p class="muted">The night month runs from the 27th of the month before to the 26th. Nightly: 80 × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30), +20 up to 10 minutes late,
 +30 before the start. A night without an exit counts until 7:30. Attendance % is by time only.
 70% → +200, 80% → +100 more. Below 2 whole nights or below 500 (without Meron) → no stipend (red 0).
 Meron: 35 a night. Driver: 60 a night. Extras = Uman nights and bonuses added by hand.</p>"""
@@ -180,13 +186,17 @@ def employee_month(eid):
     hy, hm = month_args()
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
-        recs = c.execute("SELECT * FROM attendance WHERE employee_id=? AND heb_year=? AND heb_month=? "
-                         "ORDER BY clock_in", (eid, hy, hm)).fetchall()
+        nfirst, nlast = schedule.night_month_range(hy, hm)
+        recs = [x for x in c.execute("SELECT * FROM attendance WHERE employee_id=? ORDER BY clock_in", (eid,)).fetchall()
+                if (x["program"] == "night" and nfirst <= schedule.session_date(db.parse(x["clock_in"])) <= nlast)
+                or (x["program"] == "day" and (x["heb_year"], x["heb_month"]) == (hy, hm))]
         uman = c.execute("SELECT * FROM uman WHERE employee_id=? ORDER BY heb_year DESC", (eid,)).fetchall()
         bons = c.execute("SELECT * FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
                          (eid, hy, hm)).fetchall()
     body = """
-<h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">← back</a></p>
+<h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">← back</a> ·
+<a href="?hy={{py[0]}}&hm={{py[1]}}">◀ previous month</a> · <a href="?hy={{ny[0]}}&hm={{ny[1]}}">next month ▶</a>
+<span class="muted"> · night month {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; day kollel: the calendar month{% endif %}</span></p>
 <form method="post" action="{{ url_for('admin.set_meron', eid=e.id, hy=hy, hm=hm) }}">
 <div class="wrap"><table><tr><th>Hebrew date</th><th>Clock in</th><th>Exit</th><th class="right">Minutes</th>
 <th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Meron</th>{% if e.is_driver %}<th>Drove</th>{% endif %}<th>Note</th><th></th></tr>
@@ -225,11 +235,11 @@ Amount ₪ <input name="amount" type="number" step="0.01" required> For <input n
     for n, (d, rs) in zip(nights, sorted(by_night.items())):
         pay[rs[0]["id"]] = n
     sm = schedule.month_summary(e, hy, hm)
-    first, last = hebcal.month_range(hy, hm)
-    drove = set(schedule.driver_nights(eid, first, last))
+    drove = set(schedule.driver_nights(eid, nfirst, nlast))
     return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
                 session_of=lambda a: schedule.session_date(db.parse(a["clock_in"])),
-                title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt)
+                title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt, heb=lambda d: hebcal.format_date(d), nfirst=nfirst, nlast=nlast,
+                py=hebcal.prev_month(hy, hm), ny=hebcal.next_month(hy, hm))
 
 
 @bp.route("/employee/<int:eid>/meron", methods=["POST"])
@@ -238,7 +248,7 @@ def set_meron(eid):
     hy, hm = month_args()
     meron = {int(x) for x in request.form.getlist("meron")}
     drove = {int(x) for x in request.form.getlist("drove")}
-    first, last = hebcal.month_range(hy, hm)
+    first, last = schedule.night_month_range(hy, hm)
     nights = schedule.nights_for(eid, first, last)
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
@@ -270,6 +280,13 @@ def program_of(dt):
     return "day" if 14 <= dt.hour < 20 else "night"
 
 
+def page_month(dt):
+    """The month page a record shows on: night records by the 27th-26th night month, day records by the calendar."""
+    if program_of(dt) == "night":
+        return schedule.night_month_of(schedule.session_date(dt))
+    return hebcal.from_gregorian(dt.date())[:2]
+
+
 def heb_fields(dt):
     return hebcal.from_gregorian(schedule.session_date(dt))
 
@@ -283,7 +300,8 @@ def add_attendance(eid):
                   "exit_confirmed, program) VALUES (?,?,?,?,?,?,?,1,?)",
                   (eid, t_in.isoformat(), t_out.isoformat() if t_out else None, y, m, d,
                    request.form.get("note") or "added by admin", program_of(t_in)))
-    return redirect(url_for("admin.employee_month", eid=eid, hy=y, hm=m))
+    hy, hm = page_month(t_in)
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 
 @bp.route("/attendance/<int:aid>", methods=["GET", "POST"])
@@ -299,7 +317,8 @@ def edit_attendance(aid):
                 c.execute("UPDATE attendance SET clock_in=?, clock_out=?, heb_year=?, heb_month=?, heb_day=?, note=?, exit_confirmed=1 "
                           "WHERE id=?", (t_in.isoformat(), t_out.isoformat() if t_out else None, y, m, d,
                                          request.form.get("note"), aid))
-            return redirect(url_for("admin.employee_month", eid=a["employee_id"], hy=a["heb_year"], hm=a["heb_month"]))
+            hy, hm = page_month(db.parse(a["clock_in"]))
+            return redirect(url_for("admin.employee_month", eid=a["employee_id"], hy=hy, hm=hm))
     local = lambda ts: db.parse(ts).strftime("%Y-%m-%dT%H:%M") if ts else ""
     body = """<h1>Edit shift</h1><div class="box"><form method="post">
 In <input type="datetime-local" name="clock_in" value="{{ local(a.clock_in) }}" required>
@@ -642,7 +661,7 @@ def day_rows(hy, hm, until=None):
 
 @bp.route("/day")
 def day_payroll():
-    hy, hm = month_args()
+    hy, hm = month_args(night=False)
     rows = day_rows(hy, hm)
     first, last = hebcal.month_range(hy, hm)
     py, pm = hebcal.prev_month(hy, hm)
@@ -674,7 +693,7 @@ No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavu
 
 @bp.route("/day/send-report", methods=["POST"])
 def send_day_report():
-    hy, hm = month_args()
+    hy, hm = month_args(night=False)
     ok, info = report.send_day(hy, hm)
     msg = "The summary was e-mailed." if ok else f"Could not send: {info}"
     return redirect(url_for("admin.day_payroll", hy=hy, hm=hm, msg=msg))

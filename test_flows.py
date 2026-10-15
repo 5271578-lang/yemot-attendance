@@ -336,8 +336,9 @@ def test_uman_credit_question_and_amounts():
     with db.connect() as conn:
         u = conn.execute("SELECT * FROM uman").fetchone()
         b = conn.execute("SELECT * FROM bonuses ORDER BY id").fetchall()
-    assert abs(u["percent"] - 0.55) < 0.001
-    assert len(b) == 5 and all(abs(x["amount"] - 60.5) < 0.01 for x in b)      # 3 before + 2 after so far
+    # night months run 27th-26th: Tamuz 6/10, Elul (27 Av - 26 Elul) 5/8 -> 11/18
+    assert abs(u["percent"] - 11 / 18) < 0.001
+    assert len(b) == 5 and all(abs(x["amount"] - round(11 / 18 * 110, 2)) < 0.01 for x in b)   # 3 before + 2 after so far
     assert sorted({x["heb_month"] for x in b}) == [6, 7]
     assert "אומן" not in Call("0503333331").start()                 # asked only once
     c = Call("0503333332")
@@ -632,6 +633,20 @@ def test_month_rules():
     assert schedule.month_summary(emp("400"), 5787, 8)["driver"] == 180
 
 
+def test_leaving_from_7_20_and_7_25():
+    seed()
+    d = hebcal.to_gregorian(5787, 8, 15)
+    T = lambda h, m: datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=h, minute=m)
+    night("300", T(2, 20), T(7, 26))                                  # from 7:25: nothing deducted
+    p = pay_of("300", d)
+    assert p["base"] == 80 and p["whole"]
+    night("301", T(2, 20), T(7, 21))                                  # 7:20-7:25: whole night, minutes deducted
+    p = pay_of("301", d)
+    assert p["whole"] and abs(p["base"] - 80 * 291 / 300) < 0.01
+    night("302", T(2, 20), T(7, 19))                                  # before 7:20: not a whole night
+    assert not pay_of("302", d)["whole"]
+
+
 def test_status_key_6():
     seed()
     g = hebcal.to_gregorian
@@ -643,15 +658,15 @@ def test_status_key_6():
     t = menu_call("0503333331").press("6")
     assert "היית נוכח 6 לילות, מתוכם 6 לילות שלמים, ו 6 לילות זריזין מקדימים" in t
     assert "60 אחוז" in t and "660 שקלים" in t
-    # 10 nights so far, 16 more expected nights in Cheshvan (no Shabbat): 70% of 26 nights = 18.2 -> 13 more
-    assert "ב 70 אחוז, עליך להגיע לעוד 13 לילות שלמים לפחות, מתוך 16 הלילות שנשארו" in t
-    assert "ב 80 אחוז, עליך להגיע לעוד 15 לילות שלמים לפחות, מתוך 16 הלילות שנשארו" in t
+    # night month ends 26 Cheshvan: 10 nights so far, 13 more expected (no Shabbat): 70% of 23 = 16.1 -> 11 more
+    assert "ב 70 אחוז, עליך להגיע לעוד 11 לילות שלמים לפחות, מתוך 13 הלילות שנשארו" in t
+    assert "ב 80 אחוז, עליך להגיע לעוד 13 לילות שלמים לפחות, מתוך 13 הלילות שנשארו" in t
     assert "מינימום" not in t
     assert "למירון 6 לילות" in t and "עומדת על 870 שקלים" in t
     t = menu_call("0503333334").press("6")
-    assert "למינימום המלגה עליך להגיע לעוד 5 לילות שלמים, מתוך 16" in t and "מירון" not in t   # 500 / 110
-    assert "כבר לא ניתן להגיע ל 80 אחוז" in t                         # 0 of 10 so far, 16 left: max 61%
-    late = g(5787, 8, 28)                                               # near the end of the month: minimum lost
+    assert "למינימום המלגה עליך להגיע לעוד 5 לילות שלמים, מתוך 13" in t and "מירון" not in t   # 500 / 110
+    assert "כבר לא ניתן להגיע ל 80 אחוז" in t                         # 0 of 10 so far, 13 left: max 57%
+    late = g(5787, 8, 25)                                               # near the end of the night month (26th): minimum lost
     at(late.year, late.month, late.day, 9, 0)
     assert "כבר לא ניתן להגיע למינימום" in menu_call("0503333334").press("6")
 

@@ -68,10 +68,13 @@ def build(hy, hm, until=None):
     """(subject, html, csv_text) for one Hebrew month."""
     month = f"{hebcal.month_name(hm, hy, 'he')} {hy}"
     rows = rows_for(hy, hm, until)
-    upto = f" (נכון ל{hebcal.format_date(until, 'he')})" if until else ""
+    first, last = schedule.night_month_range(hy, hm)
+    upto = f" ({hebcal.format_date(first, 'he')} עד {hebcal.format_date(last, 'he')})"
+    if until and until < last:
+        upto += f" נכון ל{hebcal.format_date(until, 'he')}"
     t = totals(rows)
     not_eligible = [e["name"] for e, s in rows if e["role"] == "employee" and not s["eligible"]]
-    removed = [e["name"] for e, _ in rows if schedule.removed_by_rule(e, until or hebcal.month_range(hy, hm)[1])]
+    removed = [e["name"] for e, _ in rows if schedule.removed_by_rule(e, until or schedule.night_month_range(hy, hm)[1])]
 
     th = 'style="background:#e8edf3;padding:6px 8px;border:1px solid #c9d1db;text-align:right"'
     td = 'style="padding:5px 8px;border:1px solid #dde3ea;text-align:right"'

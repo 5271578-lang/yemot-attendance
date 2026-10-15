@@ -300,6 +300,10 @@ def nightly_max(emp):
     return None if base is None else base + ON_TIME_BONUS + KEEP_TIME_BONUS
 
 
+WHOLE_NIGHT_EXIT_GRACE = 10   # leaving from 7:20 still counts as a whole night
+NO_DEDUCT_EXIT_GRACE = 5      # leaving from 7:25: the missing minutes are not deducted
+
+
 def present_minutes(records, d):
     """Minutes present inside the kollel hours (2:30-7:30, bein hazmanim 3:30-7:30), and the session length."""
     start, end = window(d)
@@ -308,6 +312,8 @@ def present_minutes(records, d):
     for r in records:
         cin = db.parse(r["clock_in"])
         cout = db.parse(r["clock_out"]) if r["clock_out"] else end
+        if end - timedelta(minutes=NO_DEDUCT_EXIT_GRACE) <= cout < end:
+            cout = end
         lo, hi = max(cin, start), min(cout, end)
         if hi > lo:
             present += (hi - lo).total_seconds() / 60
@@ -332,7 +338,7 @@ def night_pay(emp, records, d):
     meron = any(_get(r, "meron") for r in records)
     return {"date": d, "minutes": round(present), "session": round(session_min), "base": base, "bonus": bonus,
             "total": round(base + bonus, 2), "bhz": bool(bhz_range_of(d)),
-            "whole": bonus >= KEEP_TIME_BONUS and last_out >= end, "early": first_in < start,
+            "whole": bonus >= KEEP_TIME_BONUS and last_out >= end - timedelta(minutes=WHOLE_NIGHT_EXIT_GRACE), "early": first_in < start,
             "meron": meron, "meron_pay": MERON_BONUS if meron else 0}
 
 
@@ -370,7 +376,7 @@ def attendance_percent(emp, months, until=None):
     The +20 / +10 and Meron are not part of it."""
     present = possible = 0.0
     for y, m in months:
-        first, last = hebcal.month_range(y, m)
+        first, last = night_month_range(y, m)
         if until:
             last = min(last, until)
         mine = nights_for(emp["id"], first, last)
@@ -404,8 +410,8 @@ def driver_nights(emp_id, first, last):
 
 
 def month_summary(emp, hy, hm, until=None):
-    """Everything about one employee's stipend in one Hebrew month (up to `until`, default the whole month)."""
-    first, last = hebcal.month_range(hy, hm)
+    """Everything about one employee's stipend in one night month (27th to 26th; up to `until`)."""
+    first, last = night_month_range(hy, hm)
     if until:
         last = min(last, until)
     mine = nights_for(emp["id"], first, last)
@@ -458,7 +464,7 @@ def month_forecast(emp, hy, hm, now):
     """What is still needed by the end of the month, assuming a kollel every expected night still ahead.
     Returns dict: remaining nights, and for each target (70, 80, 'min') the whole nights still needed
     (None = no longer possible)."""
-    first, last = hebcal.month_range(hy, hm)
+    first, last = night_month_range(hy, hm)
     today = session_date(now)
     tonight_done = now > window(today)[0] or bool(nights_for(emp["id"], today, today))
     next_night = today + timedelta(days=1) if tonight_done else today
@@ -512,6 +518,21 @@ def payer_split(s):
     }
 
 
+NIGHT_MONTH_STARTS = 27      # the night kollel stipend month runs from the 27th to the 26th of the next month
+
+
+def night_month_range(hy, hm):
+    """Gregorian (first, last) of night month (hy, hm): 27 of the month before through 26 of (hy, hm)."""
+    py, pm = hebcal.prev_month(hy, hm)
+    return hebcal.to_gregorian(py, pm, NIGHT_MONTH_STARTS), hebcal.to_gregorian(hy, hm, NIGHT_MONTH_STARTS - 1)
+
+
+def night_month_of(d):
+    """(hy, hm) of the night month that session date `d` belongs to."""
+    y, m, dd = hebcal.from_gregorian(d)
+    return hebcal.next_month(y, m) if dd >= NIGHT_MONTH_STARTS else (y, m)
+
+
 def counted_months_before(hy, hm, n):
     """The n Hebrew months before (hy, hm) that count for removal (skipping Nisan, Av, Tishrei, Kislev)."""
     out = []
@@ -530,9 +551,9 @@ def removed_by_rule(emp, today):
         return False
     since = _get(emp, "restored_on") or _get(emp, "joined_on")
     since = date.fromisoformat(since[:10]) if since else None
-    hy, hm, _ = hebcal.from_gregorian(today)
+    hy, hm = night_month_of(today)
     for y, m in counted_months_before(hy, hm, REMOVE_AFTER_MONTHS):
-        first, _last = hebcal.month_range(y, m)
+        first, _last = night_month_range(y, m)
         if since is None or first < since:
             return False
         if month_summary(emp, y, m)["eligible"]:
