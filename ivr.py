@@ -327,7 +327,7 @@ def main_choice(r, answer):
     actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "6": status,
                "9": settings_menu,
                "*": switch_user}
-    if answer == "1" and schedule.bhz_notice_due(emp, db.now()):
+    if answer == "1" and schedule.in_night(emp) and schedule.bhz_notice_due(emp, db.now()):
         bhz_notice(r)
     if answer in ("1", "2") and not schedule.clock_in_open(emp, db.now()):
         r.say(r.t("closed_until", time=r.time(schedule.next_opening(emp, db.now()))))
@@ -338,10 +338,10 @@ def main_choice(r, answer):
     main_menu(r)
 
 
-def records_of_night(conn, emp_id, d):
-    rows = conn.execute("SELECT * FROM attendance WHERE employee_id=? AND clock_in>=? ORDER BY clock_in",
-                        (emp_id, (datetime.combine(d, datetime.min.time(), tzinfo=db.TZ)
-                                  - timedelta(days=1)).isoformat())).fetchall()
+def records_of_night(conn, emp_id, d, program="night"):
+    rows = conn.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? AND clock_in>=? ORDER BY clock_in",
+                        (emp_id, program, (datetime.combine(d, datetime.min.time(), tzinfo=db.TZ)
+                                           - timedelta(days=1)).isoformat())).fetchall()
     return [x for x in rows if schedule.session_date(db.parse(x["clock_in"])) == d]
 
 
@@ -349,13 +349,15 @@ def records_of_night(conn, emp_id, d):
 
 def clock_in(r):
     emp, t0 = employee(r), call_start(r)
+    program = schedule.program_now(emp, t0) or schedule.program_now(emp, db.now()) or "night"
+    r.s["data"]["program"] = program
     tonight = schedule.session_date(t0)
     with db.connect() as c:
-        mine = records_of_night(c, emp["id"], tonight)
+        mine = records_of_night(c, emp["id"], tonight, program)
         if mine:
             return r.say(r.t("already_in", time=r.time(db.parse(mine[0]["clock_in"])))).hangup()
-        older = c.execute("SELECT * FROM attendance WHERE employee_id=? AND exit_confirmed=0 ORDER BY clock_in DESC",
-                          (emp["id"],)).fetchall()
+        older = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? AND exit_confirmed=0 "
+                          "ORDER BY clock_in DESC", (emp["id"], program)).fetchall()
         older = [x for x in older if schedule.session_date(db.parse(x["clock_in"])) < tonight]
         for x in older[1:]:                                    # only the latest night is asked about
             c.execute("UPDATE attendance SET exit_confirmed=1 WHERE id=?", (x["id"],))
@@ -374,7 +376,7 @@ def prev_exit_info(rid):
     with db.connect() as c:
         row = c.execute("SELECT * FROM attendance WHERE id=?", (rid,)).fetchone()
     d = schedule.session_date(db.parse(row["clock_in"]))
-    current = db.parse(row["clock_out"]) if row["clock_out"] else schedule.default_exit(d)
+    current = db.parse(row["clock_out"]) if row["clock_out"] else schedule.default_exit(d, row["program"])
     return row, d, current
 
 
@@ -417,11 +419,12 @@ def set_exit(rid, t):
 def finish_clock_in(r):
     """Clock in at the time the call started, not when the key was pressed."""
     emp, t0 = employee(r), call_start(r)
+    program = r.s["data"].get("program", "night")
     y, m, d = hebcal.from_gregorian(schedule.session_date(t0))
-    rec, meron = schedule.recorded_clock_in(emp, t0)
+    rec, meron = schedule.recorded_clock_in(emp, t0) if program == "night" else (t0, False)
     with db.connect() as c:
-        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, meron, actual_in) "
-                  "VALUES (?,?,?,?,?,?,?)", (emp["id"], rec.isoformat(), y, m, d, int(meron), t0.isoformat()))
+        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, meron, actual_in, program) "
+                  "VALUES (?,?,?,?,?,?,?,?)", (emp["id"], rec.isoformat(), y, m, d, int(meron), t0.isoformat(), program))
     if meron:
         r.say(r.t("entry_saved", time=r.time(rec)).replace(". בהצלחה", "").replace(". Good luck", ""))
         r.say(r.t("meron_saved")).say(r.t("good_luck"))
@@ -434,8 +437,9 @@ def finish_clock_in(r):
 
 def early_exit(r):
     emp, t = employee(r), db.now()
+    program = schedule.program_now(emp, t) or "night"
     with db.connect() as c:
-        mine = records_of_night(c, emp["id"], schedule.session_date(t))
+        mine = records_of_night(c, emp["id"], schedule.session_date(t), program)
         if not mine:
             r.say(r.t("not_in"))
             return main_menu(r)
@@ -535,8 +539,19 @@ def status(r):
     emp = employee(r)
     today = schedule.session_date(db.now())
     hy, hm, _ = hebcal.from_gregorian(today)
-    s = schedule.month_summary(emp, hy, hm, until=today)
     month = hebcal.month_name(hm, hy, "en" if r.lang == "en" else "he")
+    if schedule.in_day(emp):
+        dsum = schedule.day_month_summary(emp, hy, hm, until=db.now().date())
+        if dsum["vacation"]:
+            r.say(r.t("status_day_vacation", month=month, amount=round(dsum["total"])))
+        else:
+            r.say(r.t("status_day", month=month, days=dsum["days"], held=dsum["held"], kept=dsum["kept"],
+                      hours=round(dsum["hours"]), pct=round(dsum["percent"] * 100), amount=round(dsum["total"])))
+    if not schedule.in_night(emp):
+        return main_menu(r)
+    if schedule.in_day(emp):
+        r.say(r.t("status_night_title"))
+    s = schedule.month_summary(emp, hy, hm, until=today)
     pct = round(s["percent"] * 100)
     r.say(r.t("status_month", month=month, nights=s["nights"], whole=s["whole"], early=s["early"], pct=pct))
     r.say(r.t("status_stipend", amount=round(s["stipend"])))
@@ -769,9 +784,14 @@ def resolve_recipients(sender, target):
     t = target["type"]
     if t == "managers":
         tech = [e for e in everyone if e["role"] == "tech_manager"]
-        onsite = [e for e in everyone if e["role"] == "onsite_manager"]
-        same_shift = [e for e in onsite if e["shift"] and e["shift"] == sender["shift"]]
-        return tech + (same_shift or onsite)
+        out = list(tech)
+        if schedule.in_night(sender):
+            onsite = [e for e in everyone if e["role"] == "onsite_manager" and schedule.in_night(e)]
+            same_shift = [e for e in onsite if e["shift"] and e["shift"] == sender["shift"]]
+            out += same_shift or onsite
+        if schedule.in_day(sender):
+            out += [e for e in everyone if e["role"] == "onsite_manager" and schedule.in_day(e) and e not in out]
+        return out
     if t == "driver_group":
         if not (sender["is_driver"] and sender["shuttle_group"]):
             return []
@@ -783,10 +803,12 @@ def resolve_recipients(sender, target):
         return []
     if sender["role"] == "tech_manager":
         scope = everyone
-    elif sender["shift"]:
-        scope = [e for e in everyone if e["shift"] == sender["shift"]]
     else:
         scope = []
+        if schedule.in_night(sender) and sender["shift"]:              # night: his shift
+            scope = [e for e in everyone if e["shift"] == sender["shift"] and schedule.in_night(e)]
+        if schedule.in_day(sender):                                     # day kollel manager: the day avrechim
+            scope += [e for e in everyone if schedule.in_day(e) and e not in scope]
     if t == "shift":
         return scope
     if t == "group":

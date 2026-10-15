@@ -781,6 +781,76 @@ def test_meron_group_in_settings():
     assert "לאישור יציאת ההסעה של קבוצת מאור חיים" in d.last
 
 
+def recipients_of_last():
+    with db.connect() as c:
+        m = c.execute("SELECT * FROM messages ORDER BY id DESC LIMIT 1").fetchone()
+        names = sorted(r["name"] for r in c.execute(
+            "SELECT e.name FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?",
+            (m["id"],)))
+    return m, names
+
+
+def test_day_kollel():
+    import report
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET in_day=1 WHERE emp_number IN ('300','303')")    # 300 both, 303 both
+        c.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='301'")  # 301 day only
+        c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,in_night,in_day) "
+                  "VALUES ('210','Day Mgr','0502222299','2299','onsite_manager',0,1)")
+    g = hebcal.to_gregorian
+    d = g(5787, 8, 3)                                                 # Wednesday 14/10/2026, Cheshvan
+    assert d.weekday() == 2 and schedule.day_kollel_on(d)
+    assert not schedule.day_kollel_on(g(5787, 8, 6))                  # Shabbat
+    assert not schedule.day_kollel_on(g(5787, 9, 26))                 # Chanuka
+    assert not schedule.day_kollel_on(g(5787, 1, 3)) and not schedule.day_kollel_on(g(5787, 6, 1))
+    # 16:05: key 1 is a day kollel clock-in
+    at(d.year, d.month, d.day, 16, 5)
+    t = menu_call("0503333332").press("1")
+    assert "נרשמה לשעה 16 ו 5 דקות" in t and "מירון" not in t
+    a = attendance("301")[0]
+    assert a["program"] == "day"
+    # day-only avrech at night: closed, opens tomorrow 15:30
+    at(d.year, d.month, d.day + 1, 1, 40)
+    assert "ייפתח בשעה 15 ו 30 דקות" in menu_call("0503333332").press("1")
+    # a night member at night still clocks in to the night kollel
+    t = menu_call("0503333334").press("1")
+    assert "נרשמה לשעה 1 ו 40 דקות" in t and attendance("303")[0]["program"] == "night"
+    # next day: the day exit question is about the day kollel only (19:00)
+    at(d.year, d.month, d.day + 1, 15, 50)
+    c = menu_call("0503333334")
+    assert "נרשמה" in c.press("1") and attendance("303")[-1]["program"] == "day"   # no day before: straight in
+    c = menu_call("0503333332")
+    t = c.press("1")
+    assert "מעודכנת לשעה 19" in t
+    c.press("1")
+    # pay: 800 / (22 days * 3h) per hour, 200 / 22 per day on time
+    s = schedule.day_month_summary(emp("301"), 5787, 8)
+    assert s["days"] == 2 and s["kept"] == 2
+    expected_base = round((175 + 180) * 800 / (22 * 180), 2)        # 16:05-19:00 + 16:00-19:00 (clocked 15:50)
+    assert abs(s["base"] - expected_base) < 0.02 and abs(s["keep"] - 2 * 200 / 22) < 0.02
+    # night payroll does not count the day kollel
+    assert schedule.month_summary(emp("303"), 5787, 8)["nights"] == 1
+    # vacation month = average of the last three kollel months
+    v = schedule.day_month_summary(emp("301"), 5788, 7)                # Tishrei 5788: Elul, Av skipped, Tammuz, Sivan
+    assert v["vacation"] and v["total"] == 0
+    # messages: the day manager reaches only day avrechim; a day avrech's message reaches the day manager
+    rung = []
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
+    m = menu_call("0502222299"); m.press("4"); m.press("2"); m.press("1"); m.press("/8/day.wav")
+    _, names = recipients_of_last()
+    assert names == ["No Shuttle", "Worker A1", "Worker A2"]
+    w = menu_call("0503333332"); w.press("4"); w.press("2"); w.press("/8/q.wav")
+    assert "Day Mgr" in recipients_of_last()[1] and "Site Mgr A" not in recipients_of_last()[1]
+    # key 6 for a day-only avrech
+    t = menu_call("0503333332").press("6")
+    assert "בכולל יום" in t and "היית נוכח 2 ימים" in t and "לילות" not in t
+    # admin pages and the day e-mail
+    assert client.get("/admin/day?hy=5787&hm=8", headers=AUTH).status_code == 200
+    subject, html, csv_text = report.build_day(5787, 8)
+    assert "כולל יום" in subject and "Worker A2" in html and "אור הצדיק" in html
+
+
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
 

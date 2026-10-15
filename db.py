@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS employees (
     joined_on TEXT,
     restored_on TEXT,
     id_number TEXT,
+    in_night INTEGER NOT NULL DEFAULT 1,
+    in_day INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS attendance (
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     early_exit INTEGER NOT NULL DEFAULT 0,
     meron INTEGER NOT NULL DEFAULT 0,
     actual_in TEXT,
+    program TEXT NOT NULL DEFAULT 'night',
     note TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -124,10 +127,12 @@ def connect():
 # Columns added after the first release. Existing databases get them on start-up.
 MIGRATIONS = {
     "employees": [("shuttle_calls", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'he'"),
-                  ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT")],
+                  ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT"),
+                  ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0")],
     "message_recipients": [("announced_at", "TEXT")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
-                   ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT")],
+                   ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT"),
+                   ("program", "TEXT NOT NULL DEFAULT 'night'")],
 }
 
 

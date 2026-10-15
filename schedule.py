@@ -111,16 +111,136 @@ def shuttle_open(dt):
     return a <= dt <= b
 
 
-def clock_in_open(emp, dt):
+def night_open(emp, dt):
     d = session_date(dt)
-    return opens_at(emp, d) <= dt <= window(d)[1]
+    return in_night(emp) and opens_at(emp, d) <= dt <= window(d)[1]
+
+
+def program_now(emp, dt):
+    """Which kollel a key 1 / key 2 at `dt` belongs to: 'night', 'day' or None (closed)."""
+    if in_day(emp) and day_open(dt):
+        return "day"
+    if night_open(emp, dt):
+        return "night"
+    return None
+
+
+def clock_in_open(emp, dt):
+    return program_now(emp, dt) is not None
 
 
 def next_opening(emp, dt):
-    d = session_date(dt)
-    if dt > window(d)[1]:
-        d += timedelta(days=1)
-    return opens_at(emp, d)
+    """The next time key 1 opens for this person, in any of his kollels."""
+    options = []
+    if in_night(emp):
+        d = session_date(dt)
+        if dt > window(d)[1]:
+            d += timedelta(days=1)
+        options.append(opens_at(emp, d))
+    if in_day(emp):
+        d = dt.date()
+        for _ in range(400):
+            if day_kollel_on(d):
+                o = datetime.combine(d, DAY_OPENS, tzinfo=db.TZ)
+                if o >= dt or dt <= datetime.combine(d, DAY_END, tzinfo=db.TZ):
+                    options.append(o)
+                    break
+            d += timedelta(days=1)
+    return min(options) if options else dt
+
+
+# ---- the day kollel ------------------------------------------------------
+
+DAY_START = time(16, 0)
+DAY_END = time(19, 0)
+DAY_OPENS = time(15, 30)
+DAY_MONTHLY_BASE = 800          # divided by the month's kollel hours
+DAY_MONTHLY_KEEP_TIME = 200     # divided by the month's kollel days, for each day he came on time (up to 10 min late)
+DAY_VACATION_MONTHS = (1, 7, 5)     # Nisan, Tishrei, Av: no kollel, paid the average of the last 3 months
+DAY_AVERAGE_OF = 3
+
+
+def in_night(emp):
+    v = _get(emp, "in_night")
+    return True if v is None else bool(v)
+
+
+def in_day(emp):
+    return bool(_get(emp, "in_day"))
+
+
+def day_kollel_on(d):
+    """Is there a day kollel on date `d`? Sunday to Thursday, except vacations, Chanuka, Purim, fasts and so on."""
+    if d.weekday() not in (6, 0, 1, 2, 3):
+        return False
+    y, m, dd = hebcal.from_gregorian(d)
+    if m in DAY_VACATION_MONTHS or (m, dd) == (6, 1):         # Nisan, Tishrei, Av, and 1 Elul (2nd day of Rosh Chodesh)
+        return False
+    chanuka = hebcal.to_gregorian(y, 9, 25)
+    if chanuka <= d <= chanuka + timedelta(days=7):
+        return False
+    adar = 13 if hebcal.is_leap(y) else 12
+    esther = 13 if hebcal.to_gregorian(y, adar, 13).weekday() != 5 else 11
+    tammuz17 = 17 if hebcal.to_gregorian(y, 4, 17).weekday() != 5 else 18
+    off = {(adar, 14), (adar, 15), (adar, esther), (10, 10), (4, tammuz17),     # Purim, Shushan Purim, fasts
+           (3, 5), (3, 6), (3, 7), (2, 18)}                                     # Shavuos eve, day, isru chag; Lag BaOmer
+    return (m, dd) not in off
+
+
+def day_window(d):
+    return datetime.combine(d, DAY_START, tzinfo=db.TZ), datetime.combine(d, DAY_END, tzinfo=db.TZ)
+
+
+def day_open(dt):
+    d = dt.date()
+    return day_kollel_on(d) and datetime.combine(d, DAY_OPENS, tzinfo=db.TZ) <= dt <= day_window(d)[1]
+
+
+def day_dates(hy, hm):
+    first, last = hebcal.month_range(hy, hm)
+    return [first + timedelta(days=i) for i in range((last - first).days + 1) if day_kollel_on(first + timedelta(days=i))]
+
+
+def day_month_summary(emp, hy, hm, until=None):
+    """Day kollel stipend for one Hebrew month (rosh chodesh to rosh chodesh)."""
+    days = day_dates(hy, hm)
+    if hm in DAY_VACATION_MONTHS:
+        prev, y, m = [], hy, hm
+        while len(prev) < DAY_AVERAGE_OF:
+            y, m = hebcal.prev_month(y, m)
+            if m not in DAY_VACATION_MONTHS:
+                prev.append(day_month_summary(emp, y, m)["total"])
+        avg = round(sum(prev) / DAY_AVERAGE_OF, 2)
+        return {"vacation": True, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": avg,
+                "keep": 0, "total": avg}
+    if not days:
+        return {"vacation": False, "days": 0, "held": 0, "kept": 0, "hours": 0.0, "percent": 0.0, "base": 0, "keep": 0,
+                "total": 0}
+    per_minute = DAY_MONTHLY_BASE / (len(days) * (DAY_END.hour * 60 + DAY_END.minute - DAY_START.hour * 60 - DAY_START.minute))
+    per_day_keep = DAY_MONTHLY_KEEP_TIME / len(days)
+    upto = [d for d in days if until is None or d <= until]
+    mine = nights_for(emp["id"], days[0], days[-1], program="day")
+    minutes = kept = attended = 0
+    for d in upto:
+        recs = mine.get(d, [])
+        if not recs:
+            continue
+        attended += 1
+        start, end = day_window(d)
+        for r in recs:
+            cin = db.parse(r["clock_in"])
+            cout = db.parse(r["clock_out"]) if r["clock_out"] else end
+            lo, hi = max(cin, start), min(cout, end)
+            if hi > lo:
+                minutes += (hi - lo).total_seconds() / 60
+        if min(db.parse(r["clock_in"]) for r in recs) <= start + timedelta(minutes=LATE_GRACE_MINUTES):
+            kept += 1
+    held_minutes = len(upto) * 180
+    base = round(minutes * per_minute, 2)
+    keep = round(kept * per_day_keep, 2)
+    return {"vacation": False, "days": attended, "held": len(upto), "kept": kept, "hours": round(minutes / 60, 2),
+            "percent": (minutes / held_minutes) if held_minutes else 0.0, "base": base, "keep": keep,
+            "total": round(base + keep, 2)}
 
 
 def meron_recorded_in(d):
@@ -138,8 +258,8 @@ def recorded_clock_in(emp, t):
     return (at if t < at else t), shuttle_open(t)
 
 
-def default_exit(d):
-    return window(d)[1]
+def default_exit(d, program="night"):
+    return day_window(d)[1] if program == "day" else window(d)[1]
 
 
 # ---- stipend -------------------------------------------------------------
@@ -197,10 +317,11 @@ def _get(row, key):
         return None
 
 
-def nights_for(emp_id, first, last):
-    """{session_date: [records]} for one employee between two dates (inclusive)."""
+def nights_for(emp_id, first, last, program="night"):
+    """{session_date: [records]} for one employee between two dates (inclusive), one program."""
     with db.connect() as c:
-        rows = c.execute("SELECT * FROM attendance WHERE employee_id=? ORDER BY clock_in", (emp_id,)).fetchall()
+        rows = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? ORDER BY clock_in",
+                         (emp_id, program)).fetchall()
     out = {}
     for r in rows:
         d = session_date(db.parse(r["clock_in"]))
@@ -212,7 +333,7 @@ def nights_for(emp_id, first, last):
 def kollel_nights(first, last):
     """Nights the kollel was held = nights anybody clocked in."""
     with db.connect() as c:
-        rows = c.execute("SELECT clock_in FROM attendance").fetchall()
+        rows = c.execute("SELECT clock_in FROM attendance WHERE program='night'").fetchall()
     return sorted({d for d in (session_date(db.parse(r["clock_in"])) for r in rows) if first <= d <= last})
 
 
@@ -379,7 +500,7 @@ def counted_months_before(hy, hm, n):
 def removed_by_rule(emp, today):
     """An avrech (not a manager) with REMOVE_AFTER_MONTHS counted months in a row without stipend,
     after the date he joined or was last restored."""
-    if emp["role"] != "employee":
+    if emp["role"] != "employee" or not in_night(emp):
         return False
     since = _get(emp, "restored_on") or _get(emp, "joined_on")
     since = date.fromisoformat(since[:10]) if since else None

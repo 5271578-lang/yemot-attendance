@@ -131,11 +131,55 @@ def build(hy, hm, until=None):
     return f"סיכום כולל חצות - {month}", html, "\ufeff" + buf.getvalue()
 
 
-def send(hy, hm, until=None):
+def build_day(hy, hm):
+    """(subject, html, csv_text): the day kollel, rosh chodesh to rosh chodesh. Paid by Ohr Hatzadik."""
+    month = f"{hebcal.month_name(hm, hy, 'he')} {hy}"
+    with db.connect() as c:
+        emps = c.execute("SELECT * FROM employees ORDER BY name").fetchall()
+    rows = [(e, schedule.day_month_summary(e, hy, hm)) for e in emps if schedule.in_day(e)]
+    total = round(sum(s["total"] for _, s in rows), 2)
+    days = len(schedule.day_dates(hy, hm))
+    th = 'style="background:#e8edf3;padding:6px 8px;border:1px solid #c9d1db;text-align:right"'
+    td = 'style="padding:5px 8px;border:1px solid #dde3ea;text-align:right"'
+    lines = []
+    for e, s in rows:
+        if s["vacation"]:
+            lines.append(f"<tr><td {td}>{escape(e['name'])}</td><td {td} colspan='5'>אין כולל החודש, ממוצע 3 חודשים</td>"
+                         f"<td {td}><b>{s['total']:,.0f}</b></td></tr>")
+        else:
+            lines.append(f"<tr><td {td}>{escape(e['name'])}</td><td {td}>{round(s['percent'] * 100)}%</td>"
+                         f"<td {td}>{s['hours']:.1f}</td><td {td}>{s['days']} / {s['held']}</td><td {td}>{s['kept']}</td>"
+                         f"<td {td}>{s['base']:,.0f}</td><td {td}><b>{s['total']:,.0f}</b></td></tr>")
+    html = f"""<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+<h2 style="color:#1f3a5f;margin:0 0 8px">כולל יום, סיכום חודש {month}</h2>
+<p>סך הכל לתשלום: <b>{total:,.0f} ש"ח</b>, הכל על ידי כולל אור הצדיק. ימי כולל בחודש: {days}.</p>
+<table style="border-collapse:collapse" dir="rtl">
+<tr><th {th}>שם</th><th {th}>נוכחות</th><th {th}>שעות</th><th {th}>ימים</th><th {th}>שמירת הזמן</th>
+<th {th}>לפי שעות</th><th {th}>סה"כ</th></tr>
+{''.join(lines)}
+</table>
+<p style="color:#555">800 ש"ח לחודש לחלוקה לפי שעות הכולל. 200 ש"ח לחודש לשמירת הזמן, לחלוקה לפי ימי הכולל.</p>
+</div>"""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["מספר", "שם", "אחוז נוכחות", "שעות", "ימים", "ימי כולל", "שמירת הזמן", "לפי שעות", "שמירת הזמן (ש\"ח)", "סה\"כ"])
+    for e, s in rows:
+        w.writerow([e["emp_number"], e["name"], round(s["percent"] * 100, 1), s["hours"], s["days"], s["held"], s["kept"],
+                    s["base"], s["keep"], s["total"]])
+    w.writerow([])
+    w.writerow(["", "סך הכל, על ידי כולל אור הצדיק", total])
+    return f"סיכום כולל יום - {month}", html, "\ufeff" + buf.getvalue()
+
+
+def send_day(hy, hm):
+    return send(hy, hm, builder=lambda: build_day(hy, hm))
+
+
+def send(hy, hm, until=None, builder=None):
     s = settings()
     if not enabled():
         return False, "REPORT_EMAIL, SMTP_USER and SMTP_PASSWORD are not set"
-    subject, html, csv_text = build(hy, hm, until)
+    subject, html, csv_text = builder() if builder else build(hy, hm, until)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = s["from"]
@@ -163,8 +207,44 @@ def due(now):
     return None
 
 
+def claim(key):
+    with db.connect() as c:
+        return c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, 'sending')", (key,)).rowcount
+
+
+def release(key, info):
+    with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key=?", (key,))
+    db.set_setting("report_last_error", f"{db.now().isoformat()} {info}")
+
+
+def run_day_once():
+    """On the 1st of a Hebrew month (from REPORT_HOUR): the day kollel summary of the month that just ended."""
+    if not enabled():
+        return None
+    now = db.now()
+    hy, hm, hd = hebcal.from_gregorian(now.date())
+    if hd != 1 or now.hour < REPORT_HOUR:
+        return None
+    py, pm = hebcal.prev_month(hy, hm)
+    with db.connect() as c:
+        anyone = c.execute("SELECT 1 FROM employees WHERE in_day=1 AND active=1").fetchone()
+    if not anyone:
+        return None
+    key = f"report_day_sent_{py}_{pm}"
+    if not claim(key):
+        return None
+    ok, info = send_day(py, pm)
+    if ok:
+        db.set_setting(key, now.isoformat())
+    else:
+        release(key, info)
+    return ok
+
+
 def run_once():
     """Send this month's report if due and not sent yet. Safe with several workers."""
+    run_day_once()
     if not enabled():
         return None
     when = due(db.now())

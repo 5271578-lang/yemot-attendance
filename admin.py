@@ -41,7 +41,7 @@ th,td{border-bottom:1px solid #e3e3e3;padding:7px 9px;text-align:left;font-size:
 .warn{color:#b00020;font-weight:600}.box{background:#fff;padding:14px;margin:14px 0;border:1px solid #ddd}
 input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background:#1f3a5f;color:#fff;border:0;cursor:pointer}
 .muted{color:#777}.right{text-align:right}h1{font-size:22px}.wrap{overflow-x:auto}
-</style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Attendance &amp; Pay</a>
+</style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Night kollel</a><a href="{{ url_for('admin.day_payroll') }}">Day kollel</a>
 <a href="{{ url_for('admin.employees') }}">Employees</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
 <a href="{{ url_for('admin.import_page') }}">Import</a></nav>
@@ -87,7 +87,7 @@ def payroll_rows(hy, hm):
     out = []
     for e in emps:
         m = schedule.month_summary(e, hy, hm)
-        if not m["nights"] and not e["active"] and not m["extras"]:
+        if not m["nights"] and not m["extras"] and (not e["active"] or not schedule.in_night(e)):
             continue
         out.append(dict(emp=e, nightly=schedule.nightly_base(e), **m))
     return out
@@ -176,7 +176,7 @@ def employee_month(eid):
 <div class="wrap"><table><tr><th>Hebrew date</th><th>Clock in</th><th>Exit</th><th class="right">Minutes</th>
 <th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Note</th><th></th></tr>
 {% for a in recs %}{% set n = pay.get(a.id) %}<tr><td>{{ a.heb_day }} {{ title }}{% if n and n.bhz %} · <span class="muted">bein hazmanim</span>{% endif %}</td>
-<td>{{ fmt(a.clock_in) }}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
+<td>{{ fmt(a.clock_in) }}{% if a.program == 'day' %} <span class="muted">· day kollel</span>{% endif %}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
 {% if a.actual_in and a.actual_in != a.clock_in %}<br><span class="muted">called {{ fmt(a.actual_in) }}</span>{% endif %}</td>
 <td>{% if a.clock_out %}{{ fmt(a.clock_out) }}{% if a.early_exit %} <span class="muted">early</span>{% endif %}{% else %}<span class="muted">7:30 (default)</span>{% endif %}
 {% if not a.exit_confirmed %} <span class="muted">· not confirmed</span>{% endif %}</td>
@@ -186,6 +186,8 @@ def employee_month(eid):
 <div class="box"><b>Month:</b> {{ sm.nights }} nights · {{ sm.whole }} whole · {{ sm.early }} early ·
 attendance {{ (sm.percent * 100)|round(1) }}% · stipend {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(below minimum → 0)</span>{% endif %}
 · Meron {{ sm.meron_nights }} ({{ sm.meron }}) · driver {{ sm.drives }} ({{ sm.driver }}) · <b>total {{ sm.total }}</b></div>
+{% if dsm %}<div class="box"><b>Day kollel:</b> {% if dsm.vacation %}no kollel this month, average of the last 3 months{% else %}
+{{ dsm.days }}/{{ dsm.held }} days · on time {{ dsm.kept }} · {{ dsm.hours }} hours{% endif %} · <b>{{ '%.2f'|format(dsm.total) }}</b></div>{% endif %}
 {% if uman %}<div class="box"><b>Uman</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
 <td>{{ 'travelled' if u.went else 'did not travel' }}</td><td>{% if u.went %}{{ (u.percent * 100)|round(1) }}% · nights: {{ u.nights or 'none found' }}{% endif %}</td>
 </tr>{% endfor %}</table></div>{% endif %}
@@ -197,12 +199,13 @@ Note <input name="note"> <button>Add</button></form></div>
 <button>Remove</button></form></td></tr>{% endfor %}</table>
 <form method="post" action="{{ url_for('admin.add_bonus', eid=e.id, hy=hy, hm=hm) }}">
 Amount ₪ <input name="amount" type="number" step="0.01" required> For <input name="note" placeholder="e.g. shuttle driver"> <button>Add bonus</button></form></div>"""
-    nights, by_night = month_nights(e, hy, hm, recs)
+    nights, by_night = month_nights(e, hy, hm, [x for x in recs if x["program"] == "night"])
+    dsm = schedule.day_month_summary(e, hy, hm) if schedule.in_day(e) else None
     pay = {}
     for n, (d, rs) in zip(nights, sorted(by_night.items())):
         pay[rs[0]["id"]] = n
     sm = schedule.month_summary(e, hy, hm)
-    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, hy=hy, hm=hm,
+    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm,
                 title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt)
 
 
@@ -210,6 +213,10 @@ def parse_local(value):
     if not value:
         return None
     return datetime.fromisoformat(value).replace(tzinfo=db.TZ)
+
+
+def program_of(dt):
+    return "day" if 14 <= dt.hour < 20 else "night"
 
 
 def heb_fields(dt):
@@ -222,8 +229,9 @@ def add_attendance(eid):
     y, m, d = heb_fields(t_in)
     with db.connect() as c:
         c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, heb_year, heb_month, heb_day, note, "
-                  "exit_confirmed) VALUES (?,?,?,?,?,?,?,1)", (eid, t_in.isoformat(), t_out.isoformat() if t_out else None,
-                                                              y, m, d, request.form.get("note") or "added by admin"))
+                  "exit_confirmed, program) VALUES (?,?,?,?,?,?,?,1,?)",
+                  (eid, t_in.isoformat(), t_out.isoformat() if t_out else None, y, m, d,
+                   request.form.get("note") or "added by admin", program_of(t_in)))
     return redirect(url_for("admin.employee_month", eid=eid, hy=y, hm=m))
 
 
@@ -280,6 +288,8 @@ EMP_FORM = """<form method="post">
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
 <select name="shuttle_group"><option value="">No shuttle</option>{% for g in (1,2) %}<option value="{{g}}" {% if e and e.shuttle_group==g %}selected{% endif %}>{{ 'Maor Chaim (R. Uriel Darshan)' if g == 1 else 'Darom (R. Naftali Shapira)' }}</option>{% endfor %}</select>
 <input name="hourly_rate" type="number" step="0.01" placeholder="Custom rate (optional)" value="{{ e.hourly_rate if e and e.hourly_rate is not none else '' }}">
+<label><input type="checkbox" name="in_night" {% if not e or e.in_night %}checked{% endif %}> Night kollel</label>
+<label><input type="checkbox" name="in_day" {% if e and e.in_day %}checked{% endif %}> Day kollel</label>
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> Shuttle driver</label>
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
@@ -295,7 +305,8 @@ def emp_values(form):
             1 if form.get("is_driver") else 0,
             form.get("language") if form.get("language") in LANGS else "he",
             int(form["shuttle_calls"]) if form.get("shuttle_calls") else None,
-            form.get("id_number", "").strip() or None)
+            form.get("id_number", "").strip() or None,
+            1 if form.get("in_night") else 0, 1 if form.get("in_day") else 0)
 
 
 def phone_taken(phone, eid=None):
@@ -316,7 +327,7 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,id_number,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,in_night,in_day,joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees"))
         except Exception as ex:                       # duplicate number etc.
@@ -327,7 +338,8 @@ def employees():
 <div class="box"><b>Add employee</b>""" + EMP_FORM + """</div>
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
 {% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}</td>
-<td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}</td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
+<td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}
+<span class="muted">{{ 'night' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'day' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">not set</span>{% else %}{{ r }}{% endif %}</td>
 <td>{{ langs[x.language] }}{% if x.shuttle_group %} · {{ x.shuttle_calls or '?' }} calls{% endif %}</td>
 <td>{% if removed(x) %}<span class="warn">removed (2 months)</span>
@@ -354,7 +366,7 @@ def edit_employee(eid):
         else:
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
-                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, active=? WHERE id=?",
+                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees"))
     with db.connect() as c:
@@ -403,8 +415,9 @@ def apply_correction(c, corr):
     t = db.parse(corr["requested_time"])
     day_start = t.replace(hour=0, minute=0, second=0)
     day_end = day_start + timedelta(days=1)
-    rows = c.execute("SELECT * FROM attendance WHERE employee_id=? AND clock_in>=? AND clock_in<? ORDER BY clock_in",
-                     (corr["employee_id"], day_start.isoformat(), day_end.isoformat())).fetchall()
+    program = program_of(t)
+    rows = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? AND clock_in>=? AND clock_in<? "
+                     "ORDER BY clock_in", (corr["employee_id"], program, day_start.isoformat(), day_end.isoformat())).fetchall()
     if corr["kind"] == "in":
         if rows:
             row = rows[0]
@@ -414,8 +427,8 @@ def apply_correction(c, corr):
                       (t.isoformat(), row["id"]))
             return True, "clock-in changed"
         y, m, d = heb_fields(t)
-        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, note) "
-                  "VALUES (?,?,?,?,?,'added by phone request')", (corr["employee_id"], t.isoformat(), y, m, d))
+        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, note, program) "
+                  "VALUES (?,?,?,?,?,'added by phone request',?)", (corr["employee_id"], t.isoformat(), y, m, d, program))
         return True, "night added (exit counts as 7:30 unless corrected)"
     candidates = [x for x in rows if db.parse(x["clock_in"]) < t]
     if not candidates:
@@ -527,3 +540,55 @@ Nothing is saved until you press Import. Nights already in the system are skippe
 <td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status == 'exists' else '' }}">{{ r.status }}</td></tr>{% endfor %}
 </table></div>{% endif %}"""
     return page(body, rows=rows, token=token, counts=counts, msg=msg)
+
+
+# ---- day kollel ------------------------------------------------------------
+
+def day_rows(hy, hm, until=None):
+    with db.connect() as c:
+        emps = c.execute("SELECT * FROM employees ORDER BY name").fetchall()
+    out = []
+    for e in emps:
+        if not schedule.in_day(e):
+            continue
+        out.append(dict(emp=e, **schedule.day_month_summary(e, hy, hm, until)))
+    return out
+
+
+@bp.route("/day")
+def day_payroll():
+    hy, hm = month_args()
+    rows = day_rows(hy, hm)
+    first, last = hebcal.month_range(hy, hm)
+    py, pm = hebcal.prev_month(hy, hm)
+    ny, nm = hebcal.next_month(hy, hm)
+    days = schedule.day_dates(hy, hm)
+    total = round(sum(r["total"] for r in rows), 2)
+    body = """<h1>Day kollel · {{ title }}</h1>
+<p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} · {{ days|length }} kollel days (Sun–Thu, 16:00–19:00) ·
+<a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
+<form method="post" action="{{ url_for('admin.send_day_report', hy=hy, hm=hm) }}" style="display:inline">
+<button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
+<div class="box"><b>Total: {{ '{:,.0f}'.format(total) }}</b> · all paid by Ohr Hatzadik</div>
+<div class="wrap"><table><tr><th>Name</th><th class="right">Days</th><th class="right">On time</th><th class="right">Hours</th>
+<th class="right">Attendance</th><th class="right">Hours pay</th><th class="right">On-time pay</th><th class="right">Total ₪</th></tr>
+{% for r in rows %}<tr><td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a></td>
+{% if r.vacation %}<td colspan="6" class="muted">No day kollel this month – average of the last 3 months</td>
+{% else %}<td class="right">{{ r.days }} / {{ r.held }}</td><td class="right">{{ r.kept }}</td><td class="right">{{ r.hours }}</td>
+<td class="right">{{ (r.percent * 100)|round(1) }}%</td><td class="right">{{ '%.2f'|format(r.base) }}</td>
+<td class="right">{{ '%.2f'|format(r.keep) }}</td>{% endif %}<td class="right"><b>{{ '%.2f'|format(r.total) }}</b></td></tr>
+{% else %}<tr><td colspan="8" class="muted">No avrechim are marked "Day kollel" yet (Employees → edit).</td></tr>{% endfor %}
+</table></div>
+<p class="muted">800 ₪ a month divided by the month's kollel hours, for the hours present. 200 ₪ a month divided by the
+month's kollel days, for each day he came by 16:10. Nisan, Tishrei and Av: no kollel, paid the average of the last 3 months.
+No kollel on Chanuka, Purim, Shushan Purim, fasts, erev Shavuos, isru chag Shavuos, Lag BaOmer and 1 Elul.</p>"""
+    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
+                total=total, title=f"{hebcal.month_name(hm, hy)} {hy}", msg=request.args.get("msg"))
+
+
+@bp.route("/day/send-report", methods=["POST"])
+def send_day_report():
+    hy, hm = month_args()
+    ok, info = report.send_day(hy, hm)
+    msg = "The summary was e-mailed." if ok else f"Could not send: {info}"
+    return redirect(url_for("admin.day_payroll", hy=hy, hm=hm, msg=msg))
