@@ -21,6 +21,7 @@ import db
 import hebcal
 import nbs
 import schedule
+import tefila
 import trips
 from prompts import GROUPS, GROUPS_SHORT, LANGUAGES, WEEKDAYS, say_time, text
 
@@ -320,6 +321,9 @@ def main_menu(r):
         txt += ". " + r.t("menu_driver")
         keys.append("3")
     rest = r.t("menu_rest")
+    if tefila.is_open(emp):
+        rest += ". " + r.t("tefila_menu")
+        keys.append(tefila.CAMPAIGN["key"])
     for trip in trips.open_trips(emp):
         rest += ". " + trip["menu"].get(r.lang, trip["menu"]["he"])
         keys.append(trip["key"])
@@ -341,11 +345,43 @@ def main_choice(r, answer):
         return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
+    if answer == tefila.CAMPAIGN["key"] and tefila.is_open(emp):
+        return tefila_start(r)
     trip = trips.by_key(answer, emp)
     if trip:
         return trip_start(r, trip)
     r.say(r.t("invalid"))
     main_menu(r)
+
+
+# ---- 8: Mivtza Tefila B'Koach (tefila.py) --------------------------------
+
+def tefila_entries_text(r, n):
+    return r.t("tefila_entries_one") if n == 1 else r.t("tefila_entries", n=n)
+
+
+def tefila_start(r):
+    with db.connect() as c:
+        done = c.execute("SELECT COUNT(*) FROM tefila_entries WHERE campaign=? AND employee_id=?",
+                         (tefila.CAMPAIGN["id"], r.s["employee_id"])).fetchone()[0]
+        today = c.execute("SELECT 1 FROM tefila_entries WHERE campaign=? AND employee_id=? AND day=?",
+                          (tefila.CAMPAIGN["id"], r.s["employee_id"], call_start(r).date().isoformat())).fetchone()
+    if today:
+        r.say(r.t("tefila_already", entries=tefila_entries_text(r, done)))
+        return main_menu(r)
+    r.ask("tefila_confirm", r.t("tefila_intro"), allowed=["1"], timeout=10)
+
+
+@step
+def tefila_confirm(r, answer):
+    if answer != "1":
+        return main_menu(r)
+    if not tefila.is_open(employee(r), call_start(r)):
+        r.say(r.t("tefila_closed"))
+        return main_menu(r)
+    new, n = tefila.register(r.s["employee_id"], call_start(r))
+    r.say(r.t("tefila_saved" if new else "tefila_already", entries=tefila_entries_text(r, n)))
+    r.hangup()
 
 
 # ---- temporary registration extensions (trips.py) ------------------------

@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        for t in ("trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        for t in ("tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -457,6 +457,41 @@ def test_trip_registration_key_7():
     at(2026, 10, 19, 15, 1)                                           # Monday 15:01: closed
     t = menu_call("0503333331").press("7")
     assert "טבריה" not in t and "להרשמה" not in Call("0503333331").start()
+
+
+
+def test_tefila_bekoach_key_8():
+    import tefila
+    seed()
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("date,netz\n2026-10-18,06:21:40\n2026-10-19,06:22:20\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 18, 5, 15)                                           # 66 min before netz: closed
+    assert "תפילה בכוח" not in Call("0503333331").start()
+    at(2026, 10, 18, 5, 25)                                           # 56 min before: open
+    assert "למבצע תפילה בכוח הקישו 8" in Call("0503333331").start()
+    c = menu_call("0503333331")
+    t = c.press("8")
+    assert "טלית ותפילין" in t
+    t = c.press("1")
+    assert "נרשמת בהצלחה למבצע תפילה בכוח להיום" in t and "כניסה אחת" in t and "hangup" in t
+    c = menu_call("0503333331")
+    assert "כבר נרשמת היום" in c.press("8")
+    with db.connect() as conn:                                        # Kollel Horaah only: not for him
+        conn.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='303'")
+    assert "8" not in menu_call("0503333334").press("8").split("=")[-1].split(",")[9].split(".")
+    at(2026, 10, 18, 5, 52)                                           # 29 min before: closed
+    assert "תפילה בכוח" not in Call("0503333332").start()
+    at(2026, 10, 19, 5, 30)
+    c = menu_call("0503333331"); c.press("8")
+    assert "יש לך 2 כניסות להגרלה" in c.press("1")
+    c = menu_call("0503333332"); c.press("8"); c.press("1")
+    assert [x["entries"] for x in tefila.totals()] == [2, 1]
+    html = client.post("/admin/tefila", headers=AUTH, data={"action": "draw"}).data.decode()
+    assert "Draw result" in html and "כרטיס טיסה לאומן" in html
+    assert len(tefila.draws()) == 1 and len(tefila.draws()[0]["winners"]) == 2   # only 2 avrechim -> 2 winners
+    at(2026, 12, 13, 5, 30)                                           # after Zos Chanuka
+    assert not tefila.is_open()
 
 
 # ---- messages ------------------------------------------------------------

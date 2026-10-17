@@ -13,6 +13,7 @@ import nbs
 import schedule
 import report
 import importer
+import tefila
 import trips
 import base64
 import json
@@ -46,7 +47,7 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Kollel Chatzos</a><a href="{{ url_for('admin.day_payroll') }}">Kollel Horaah</a>
 <a href="{{ url_for('admin.employees', k='night') }}">Chatzos avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Horaah avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
-<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a></nav>
+<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -645,6 +646,51 @@ Nothing is saved until you press Import. Records already in the system are skipp
 <td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status in ('exists', 'duplicate') else '' }}">{{ r.status }}</td></tr>{% endfor %}
 </table></div>{% endif %}"""
     return page(body, rows=rows, token=token, counts=counts, msg=msg, warns=warns, errors=errors)
+
+
+# ---- Mivtza Tefila B'Koach (tefila.py) --------------------------------------
+
+@bp.route("/tefila", methods=["GET", "POST"])
+def tefila_page():
+    winners = None
+    if request.method == "POST" and request.form.get("action") == "draw":
+        winners = tefila.draw()
+    elif request.method == "POST" and request.form.get("action") == "remove":
+        with db.connect() as c:
+            c.execute("DELETE FROM tefila_entries WHERE campaign=? AND employee_id=? AND day=?",
+                      (tefila.CAMPAIGN["id"], int(request.form["employee_id"]), request.form["day"]))
+        return redirect(url_for("admin.tefila_page", day=request.form["day"]))
+    now = db.now()
+    today = now.date()
+    w = tefila.window(today)
+    day = request.args.get("day") or today.isoformat()
+    camp = tefila.CAMPAIGN
+    missing = [camp["first"] + timedelta(days=i) for i in range((camp["last"] - camp["first"]).days + 1)]
+    missing = [d for d in missing if d >= today and d.weekday() != 5 and tefila.netz(d) is None]
+    body = """<h1>Mivtza Tefila B'Koach</h1>
+<div class="box">Key {{ camp.key }} · {{ camp.first.strftime('%d/%m/%Y') }} – {{ camp.last.strftime('%d/%m/%Y') }} (Zos Chanuka) · Kollel Chatzos only.
+Open from {{ camp.opens_before }} to {{ camp.closes_before }} minutes before netz (Tzfas, Itim LeBina).<br>
+Today: {% if w %}netz {{ netz.strftime('%H:%M:%S') }} · open {{ w[0].strftime('%H:%M') }}–{{ w[1].strftime('%H:%M') }}{% else %}<span class="warn">no netz time for today - closed</span>{% endif %}
+{% if missing %}<br><span class="warn">Missing netz times for {{ missing|length }} days (first: {{ missing[0].strftime('%d/%m/%Y') }}) - those days the key stays closed.</span>{% endif %}</div>
+{% if winners is not none %}<div class="box" style="border-color:#2e7d32"><b>Draw result (saved):</b><ol>{% for x in winners %}<li dir="rtl">{{ x.prize }}: <b>{{ x.name }}</b></li>{% endfor %}</ol></div>{% endif %}
+<div class="box"><b>Entries per avrech</b> (every morning = one entry) · total <b>{{ totals|sum(attribute='entries') }}</b>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th class="right">Entries</th><th>Last</th></tr>
+{% for x in totals %}<tr><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}</td><td class="right"><b>{{ x.entries }}</b></td><td>{{ x.last_day }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No entries yet.</td></tr>{% endfor %}</table></div>
+<form method="post" onsubmit="return confirm('Draw the winners now? Every draw is saved.')" style="margin-top:10px">
+<button name="action" value="draw" style="background:#2e7d32">Draw the winners</button>
+<span class="muted"> {{ camp.prizes|length }} prizes, weighted by entries, each avrech wins once.</span></form></div>
+<div class="box"><b>By day</b>: {% for x in days %}<a href="?day={{ x.day }}">{{ x.day }}</a> ({{ x.n }}){{ ' · ' if not loop.last }}{% endfor %}
+<p><b>{{ day }}</b></p><table><tr><th>Name</th><th>Registered at</th><th></th></tr>
+{% for x in list %}<tr><td>{{ x.name }}</td><td>{{ fmt(x.created_at) }}</td><td><form method="post" onsubmit="return confirm('Remove this entry?')">
+<input type="hidden" name="action" value="remove"><input type="hidden" name="employee_id" value="{{ x.employee_id }}">
+<input type="hidden" name="day" value="{{ x.day }}"><button>Remove</button></form></td></tr>
+{% else %}<tr><td colspan="3" class="muted">Nobody.</td></tr>{% endfor %}</table></div>
+{% if draws %}<div class="box"><b>Previous draws</b>{% for d in draws %}<p>{{ fmt(d.created_at) }} · {{ d.tickets }} entries:
+{% for x in d.winners %}<span dir="rtl">{{ x.prize }}: <b>{{ x.name }}</b></span>{{ ' · ' if not loop.last }}{% endfor %}</p>{% endfor %}</div>{% endif %}"""
+    return page(body, camp=camp, w=w, netz=tefila.netz(today), missing=missing, winners=winners,
+                totals=tefila.totals(), days=tefila.by_day(), day=day, list=tefila.entries_of_day(day),
+                draws=tefila.draws(), fmt=fmt)
 
 
 # ---- temporary registrations (trips.py) -----------------------------------

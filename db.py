@@ -107,6 +107,20 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tefila_entries (
+    campaign TEXT NOT NULL,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    day TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (campaign, employee_id, day)
+);
+CREATE TABLE IF NOT EXISTS tefila_draws (
+    id INTEGER PRIMARY KEY,
+    campaign TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    tickets INTEGER NOT NULL,
+    result TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS trip_signups (
     trip TEXT NOT NULL,
     employee_id INTEGER NOT NULL REFERENCES employees(id),
