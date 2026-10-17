@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS trip_signups (
+    trip TEXT NOT NULL,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    choice TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (trip, employee_id)
+);
 CREATE TABLE IF NOT EXISTS call_sessions (
     call_sid TEXT PRIMARY KEY,
     employee_id INTEGER,

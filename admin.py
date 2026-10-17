@@ -13,6 +13,7 @@ import nbs
 import schedule
 import report
 import importer
+import trips
 import base64
 import json
 import secrets
@@ -45,7 +46,7 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Night kollel</a><a href="{{ url_for('admin.day_payroll') }}">Day kollel</a>
 <a href="{{ url_for('admin.employees', k='night') }}">Night avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Day avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
-<a href="{{ url_for('admin.import_page') }}">Import</a></nav>
+<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -644,6 +645,47 @@ Nothing is saved until you press Import. Records already in the system are skipp
 <td class="{{ 'warn' if r.status in ('no match', 'bad date') else 'muted' if r.status in ('exists', 'duplicate') else '' }}">{{ r.status }}</td></tr>{% endfor %}
 </table></div>{% endif %}"""
     return page(body, rows=rows, token=token, counts=counts, msg=msg, warns=warns, errors=errors)
+
+
+# ---- temporary registrations (trips.py) -----------------------------------
+
+@bp.route("/registrations", methods=["GET", "POST"])
+def registrations():
+    if request.method == "POST":
+        with db.connect() as c:
+            c.execute("DELETE FROM trip_signups WHERE trip=? AND employee_id=?",
+                      (request.form["trip"], int(request.form["employee_id"])))
+        return redirect(url_for("admin.registrations"))
+    now = db.now()
+    data = []
+    for t in reversed(trips.TRIPS):
+        rows = trips.signups(t["id"])
+        counts = {k: sum(1 for x in rows if x["choice"] == k) for k in t["options"]}
+        data.append((t, rows, counts, now < t["until"]))
+    body = """<h1>Registrations</h1>
+{% for t, rows, counts, is_open in data %}<div class="box"><b dir="rtl">{{ t.title }}</b><br>
+<span class="{{ '' if is_open else 'muted' }}">Key {{ t.key }} · {{ 'open until' if is_open else 'closed on' }} {{ t.until.strftime('%d/%m/%Y %H:%M') }}</span>
+<p><b>{{ rows|length }}</b> registered{% for k, o in t.options.items() %} · {{ o.admin }}: <b>{{ counts[k] }}</b>{% endfor %}
+ · <a href="{{ url_for('admin.registrations_csv', trip=t.id) }}">Download CSV</a></p>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th>Phone</th><th>Choice</th><th>Registered</th><th></th></tr>
+{% for x in rows %}<tr><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{{ x.phone or '' }}</td>
+<td>{{ t.options[x.choice].admin }}</td><td>{{ fmt(x.created_at) }}</td>
+<td><form method="post" onsubmit="return confirm('Remove this registration?')"><input type="hidden" name="trip" value="{{ t.id }}">
+<input type="hidden" name="employee_id" value="{{ x.employee_id }}"><button>Remove</button></form></td></tr>{% endfor %}
+</table></div></div>{% else %}<p class="muted">No registrations.</p>{% endfor %}"""
+    return page(body, data=data, fmt=fmt)
+
+
+@bp.route("/registrations/<trip>.csv")
+def registrations_csv(trip):
+    t = trips.by_id(trip)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["No.", "Name", "Phone", "Choice", "Registered"])
+    for x in trips.signups(trip):
+        w.writerow([x["emp_number"], x["name"], x["phone"] or "", t["options"][x["choice"]]["he"], fmt(x["created_at"])])
+    return Response("\ufeff" + out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={trip}.csv"})
 
 
 # ---- day kollel ------------------------------------------------------------

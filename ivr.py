@@ -21,6 +21,7 @@ import db
 import hebcal
 import nbs
 import schedule
+import trips
 from prompts import GROUPS, GROUPS_SHORT, LANGUAGES, WEEKDAYS, say_time, text
 
 bp = Blueprint("ivr", __name__)
@@ -318,7 +319,11 @@ def main_menu(r):
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
         keys.append("3")
-    r.ask("main_choice", txt + ". " + r.t("menu_rest") + ". " + r.t("menu_switch"), allowed=keys)
+    rest = r.t("menu_rest")
+    for trip in trips.open_trips():
+        rest += ". " + trip["menu"].get(r.lang, trip["menu"]["he"])
+        keys.append(trip["key"])
+    r.ask("main_choice", txt + ". " + rest + ". " + r.t("menu_switch"), allowed=keys)
 
 
 @step
@@ -336,7 +341,36 @@ def main_choice(r, answer):
         return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
+    trip = trips.by_key(answer)
+    if trip:
+        return trip_start(r, trip)
     r.say(r.t("invalid"))
+    main_menu(r)
+
+
+# ---- temporary registration extensions (trips.py) ------------------------
+
+def _lang(r, d):
+    return d.get(r.lang, d["he"])
+
+
+def trip_start(r, trip):
+    mine = trips.signup_of(trip["id"], r.s["employee_id"])
+    if mine:
+        r.say(_lang(r, trip["already"]).format(option=_lang(r, trip["options"][mine["choice"]])))
+    r.ask("trip_choice", _lang(r, trip["intro"]), allowed=list(trip["options"]), timeout=10, trip=trip["id"])
+
+
+@step
+def trip_choice(r, answer, trip):
+    t = trips.by_id(trip)
+    if t is None or db.now() >= t["until"]:
+        r.say(r.t("invalid"))
+        return main_menu(r)
+    if answer not in t["options"]:
+        return trip_start(r, t)
+    trips.register(t["id"], r.s["employee_id"], answer)
+    r.say(_lang(r, t["saved"]).format(option=_lang(r, t["options"][answer])))
     main_menu(r)
 
 

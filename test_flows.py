@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        for t in ("message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        for t in ("trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -430,6 +430,29 @@ def test_day_kollel_correction_says_day():
     assert db.parse(k["requested_time"]) == datetime(sun.year, sun.month, sun.day - 3, 18, 45, tzinfo=db.TZ)
     c = menu_call("0503333331"); c.press("5")                         # night avrech still hears "night"
     assert "לתיקון של הלילה הקישו 1" in c.press("1")
+
+
+
+def test_trip_registration_key_7():
+    import trips
+    seed()
+    at(2026, 10, 18, 21, 0)                                           # Sunday evening: open
+    c = menu_call("0503333331")
+    t = c.press("7")
+    assert "הגעת לשלוחת ההרשמה לנסיעה לטבריה" in t and "הקש 1" in t and '"' not in t.split("=")[1].replace('"', "", 0)
+    assert "נרשמת בהצלחה לנסיעה, כולל תפילת שחרית" in c.press("1")
+    c = menu_call("0503333332"); c.press("7")
+    assert "לא כולל תפילת שחרית" in c.press("2")
+    c = menu_call("0503333331")
+    assert "אתה כבר רשום לנסיעה, כולל תפילת שחרית" in c.press("7")
+    assert "לא כולל" in c.press("2")                                    # changed his choice
+    rows = trips.signups("teveria_5787")
+    assert sorted(x["choice"] for x in rows) == ["2", "2"]
+    html = client.get("/admin/registrations", headers=AUTH).data.decode()
+    assert "<b>2</b> registered" in html
+    at(2026, 10, 19, 15, 1)                                           # Monday 15:01: closed
+    t = menu_call("0503333331").press("7")
+    assert "טבריה" not in t and "להרשמה" not in Call("0503333331").start()
 
 
 # ---- messages ------------------------------------------------------------
