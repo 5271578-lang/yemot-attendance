@@ -320,7 +320,7 @@ def main_menu(r):
         txt += ". " + r.t("menu_driver")
         keys.append("3")
     rest = r.t("menu_rest")
-    for trip in trips.open_trips():
+    for trip in trips.open_trips(emp):
         rest += ". " + trip["menu"].get(r.lang, trip["menu"]["he"])
         keys.append(trip["key"])
     r.ask("main_choice", txt + ". " + rest + ". " + r.t("menu_switch"), allowed=keys)
@@ -341,7 +341,7 @@ def main_choice(r, answer):
         return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
-    trip = trips.by_key(answer)
+    trip = trips.by_key(answer, emp)
     if trip:
         return trip_start(r, trip)
     r.say(r.t("invalid"))
@@ -364,7 +364,7 @@ def trip_start(r, trip):
 @step
 def trip_choice(r, answer, trip):
     t = trips.by_id(trip)
-    if t is None or db.now() >= t["until"]:
+    if t is None or db.now() >= t["until"] or not trips.for_employee(t, employee(r)):
         r.say(r.t("invalid"))
         return main_menu(r)
     if answer not in t["options"]:
@@ -562,7 +562,7 @@ def fix_date(program, t, previous):
     if program == "night":
         return schedule.session_date(t) - timedelta(days=1 if previous else 0)
     d = t.date()
-    if previous:                                   # the last day kollel before today
+    if previous:                                   # the last Kollel Horaah before today
         d -= timedelta(days=1)
         for _ in range(60):
             if schedule.day_kollel_on(d):
@@ -940,7 +940,7 @@ def resolve_recipients(sender, target):
         scope = []
         if schedule.in_night(sender) and sender["shift"]:              # night: his shift
             scope = [e for e in everyone if e["shift"] == sender["shift"] and schedule.in_night(e)]
-        if schedule.in_day(sender):                                     # day kollel manager: the day avrechim
+        if schedule.in_day(sender):                                     # Kollel Horaah manager: the day avrechim
             scope += [e for e in everyone if schedule.in_day(e) and e not in scope]
     if t == "shift":
         return scope

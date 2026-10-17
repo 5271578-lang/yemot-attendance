@@ -249,10 +249,10 @@ def warnings(rows):
         day = sum(1 for r in rs if r["program"] == "day")
         night = len(rs) - day
         if day and not e["in_day"]:
-            out.append(f"{e['name']} is not marked as day kollel, but has {day} day-hour records "
-                       f"(they will be imported as day kollel).")
+            out.append(f"{e['name']} is not marked as Kollel Horaah, but has {day} day-hour records "
+                       f"(they will be imported as Kollel Horaah).")
         if night and not e["in_night"]:
-            out.append(f"{e['name']} is not marked as night kollel, but has {night} night-hour records.")
+            out.append(f"{e['name']} is not marked as Kollel Chatzos, but has {night} night-hour records.")
         if not e["id_number"]:
             out.append(f"{e['name']} has no ID number (ת.ז) in the system.")
     missing_id = sorted({r["name"] for r in rows if r["emp"] is None and r["name"] and not r["id"]})

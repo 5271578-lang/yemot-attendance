@@ -446,6 +446,10 @@ def test_trip_registration_key_7():
     c = menu_call("0503333331")
     assert "אתה כבר רשום לנסיעה, כולל תפילת שחרית" in c.press("7")
     assert "לא כולל" in c.press("2")                                    # changed his choice
+    with db.connect() as conn:                                        # Kollel Horaah only: does not hear it
+        conn.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='303'")
+    c = menu_call("0503333334")
+    assert "טבריה" not in Call("0503333334").start() and "טבריה" not in c.press("7")
     rows = trips.signups("teveria_5787")
     assert sorted(x["choice"] for x in rows) == ["2", "2"]
     html = client.get("/admin/registrations", headers=AUTH).data.decode()
@@ -824,7 +828,7 @@ def test_import_excel_day_hours_and_warnings():
                     content_type="multipart/form-data")
     html = r.data.decode()
     assert "<b>2</b> records to import" in html and "2 repeated in the files" in html
-    assert "not marked as day kollel" in html and "has no ID number" in html
+    assert "not marked as Kollel Horaah" in html and "has no ID number" in html
     assert "does not belong to any avrech" in html and "פלוני" in html
     token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
     r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "import"})
@@ -981,11 +985,11 @@ def test_day_kollel():
     assert "Day Mgr" in recipients_of_last()[1] and "Site Mgr A" not in recipients_of_last()[1]
     # key 6 for a day-only avrech
     t = menu_call("0503333332").press("6")
-    assert "בכולל יום" in t and "היית נוכח 2 ימים" in t and "לילות" not in t
+    assert "בכולל הוראה" in t and "היית נוכח 2 ימים" in t and "לילות" not in t
     # admin pages and the day e-mail
     assert client.get("/admin/day?hy=5787&hm=8", headers=AUTH).status_code == 200
     subject, html, csv_text = report.build_day(5787, 8)
-    assert "כולל יום" in subject and "Worker A2" in html and "אור הצדיק" in html
+    assert "כולל הוראה" in subject and "Worker A2" in html and "אור הצדיק" in html
 
 
 def test_additional_phone():

@@ -11,6 +11,7 @@ TRIPS = [
     {
         "id": "teveria_5787",
         "key": "7",
+        "audience": "night",          # only Kollel Chatzos avrechim hear it ("day" / "all")
         "title": "נסיעה לטבריה, יארצייט רבי ישראל קארדונער, אור לט' חשוון תשפ\"ז",
         "until": datetime(2026, 10, 19, 15, 0, tzinfo=db.TZ),          # Monday, 15:00
         "menu": {"he": "להרשמה לנסיעה לטבריה הקישו 7",
@@ -47,13 +48,23 @@ TRIPS = [
     },
 ]
 
-def open_trips(now=None):
+def for_employee(trip, emp):
+    who = trip.get("audience", "all")
+    if who == "night":
+        return bool(emp["in_night"])
+    if who == "day":
+        return bool(emp["in_day"])
+    return True
+
+
+def open_trips(emp=None, now=None):
+    """Registrations open now (and meant for this avrech). A closed one keeps its data and admin page."""
     now = now or db.now()
-    return [t for t in TRIPS if now < t["until"]]
+    return [t for t in TRIPS if now < t["until"] and (emp is None or for_employee(t, emp))]
 
 
-def by_key(key, now=None):
-    return next((t for t in open_trips(now) if t["key"] == key), None)
+def by_key(key, emp=None, now=None):
+    return next((t for t in open_trips(emp, now) if t["key"] == key), None)
 
 
 def by_id(trip_id):

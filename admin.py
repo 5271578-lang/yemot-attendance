@@ -43,8 +43,8 @@ th,td{border-bottom:1px solid #e3e3e3;padding:7px 9px;text-align:left;font-size:
 .warn{color:#b00020;font-weight:600}.box{background:#fff;padding:14px;margin:14px 0;border:1px solid #ddd}
 input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background:#1f3a5f;color:#fff;border:0;cursor:pointer}
 .muted{color:#777}.right{text-align:right}h1{font-size:22px}.wrap{overflow-x:auto}
-</style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Night kollel</a><a href="{{ url_for('admin.day_payroll') }}">Day kollel</a>
-<a href="{{ url_for('admin.employees', k='night') }}">Night avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Day avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
+</style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Kollel Chatzos</a><a href="{{ url_for('admin.day_payroll') }}">Kollel Horaah</a>
+<a href="{{ url_for('admin.employees', k='night') }}">Chatzos avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Horaah avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
 <a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
@@ -197,12 +197,12 @@ def employee_month(eid):
     body = """
 <h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">← back</a> ·
 <a href="?hy={{py[0]}}&hm={{py[1]}}">◀ previous month</a> · <a href="?hy={{ny[0]}}&hm={{ny[1]}}">next month ▶</a>
-<span class="muted"> · night month {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; day kollel: the calendar month{% endif %}</span></p>
+<span class="muted"> · night month {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; Kollel Horaah: the calendar month{% endif %}</span></p>
 <form method="post" action="{{ url_for('admin.set_meron', eid=e.id, hy=hy, hm=hm) }}">
 <div class="wrap"><table><tr><th>Hebrew date</th><th>Clock in</th><th>Exit</th><th class="right">Minutes</th>
 <th class="right">Base</th><th class="right">On-time</th><th class="right">Night ₪</th><th>Meron</th>{% if e.is_driver %}<th>Drove</th>{% endif %}<th>Note</th><th></th></tr>
 {% for a in recs %}{% set n = pay.get(a.id) %}<tr><td>{{ a.heb_day }} {{ title }}{% if n and n.bhz %} · <span class="muted">bein hazmanim</span>{% endif %}</td>
-<td>{{ fmt(a.clock_in) }}{% if a.program == 'day' %} <span class="muted">· day kollel</span>{% endif %}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
+<td>{{ fmt(a.clock_in) }}{% if a.program == 'day' %} <span class="muted">· Kollel Horaah</span>{% endif %}{% if a.meron %} <span class="muted">· Meron</span>{% endif %}
 {% if a.actual_in and a.actual_in != a.clock_in %}<br><span class="muted">called {{ fmt(a.actual_in) }}</span>{% endif %}</td>
 <td>{% if a.clock_out %}{{ fmt(a.clock_out) }}{% if a.early_exit %} <span class="muted">early</span>{% endif %}{% else %}<span class="muted">7:30 (default)</span>{% endif %}
 {% if not a.exit_confirmed %} <span class="muted">· not confirmed</span>{% endif %}</td>
@@ -217,7 +217,7 @@ def employee_month(eid):
 <div class="box"><b>Month:</b> {{ sm.nights }} nights · {{ sm.whole }} whole · {{ sm.early }} early ·
 attendance {{ (sm.percent * 100)|round(1) }}% · stipend {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(below minimum → 0)</span>{% endif %}
 · Meron {{ sm.meron_nights }} ({{ sm.meron }}) · driver {{ sm.drives }} ({{ sm.driver }}) · <b>total {{ sm.total }}</b></div>
-{% if dsm %}<div class="box"><b>Day kollel:</b> {% if dsm.vacation %}no kollel this month, average of the last 3 months{% else %}
+{% if dsm %}<div class="box"><b>Kollel Horaah:</b> {% if dsm.vacation %}no kollel this month, average of the last 3 months{% else %}
 {{ dsm.days }}/{{ dsm.held }} days · on time {{ dsm.kept }} · {{ dsm.hours }} hours{% endif %} · <b>{{ '%.2f'|format(dsm.total) }}</b></div>{% endif %}
 {% if uman %}<div class="box"><b>Uman</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
 <td>{{ 'travelled' if u.went else 'did not travel' }}</td><td>{% if u.went %}{{ (u.percent * 100)|round(1) }}% · nights: {{ u.nights or 'none found' }}{% endif %}</td>
@@ -362,8 +362,8 @@ EMP_FORM = """<form method="post">
 <input name="shift" placeholder="Shift (e.g. morning)" value="{{ (e.shift or '') if e else '' }}">
 <select name="shuttle_group"><option value="">No shuttle</option>{% for g in (1,2) %}<option value="{{g}}" {% if e and e.shuttle_group==g %}selected{% endif %}>{{ 'Maor Chaim (R. Uriel Darshan)' if g == 1 else 'Darom (R. Naftali Shapira)' }}</option>{% endfor %}</select>
 <input name="hourly_rate" type="number" step="0.01" placeholder="Custom rate (optional)" value="{{ e.hourly_rate if e and e.hourly_rate is not none else '' }}">
-<label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> Night kollel</label>
-<label><input type="checkbox" name="in_day" {% if (not e and form_day) or (e and e.in_day) %}checked{% endif %}> Day kollel</label>
+<label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> Kollel Chatzos</label>
+<label><input type="checkbox" name="in_day" {% if (not e and form_day) or (e and e.in_day) %}checked{% endif %}> Kollel Horaah</label>
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> Shuttle driver</label>
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
@@ -417,8 +417,8 @@ def employees():
     emps = [x for x in allemps if where(x)]
     orphans = sum(1 for x in allemps if not x["in_night"] and not x["in_day"])
     no_id = sum(1 for x in emps if x["active"] and not x["id_number"])
-    body = """<h1>{{ {'night': 'Night kollel avrechim', 'day': 'Day kollel avrechim', 'none': 'Avrechim in no kollel'}[kollel] }}</h1>
-<p><a href="{{ url_for('admin.employees', k='night') }}">Night kollel</a> · <a href="{{ url_for('admin.employees', k='day') }}">Day kollel</a>
+    body = """<h1>{{ {'night': 'Kollel Chatzos avrechim', 'day': 'Kollel Horaah avrechim', 'none': 'Avrechim in no kollel'}[kollel] }}</h1>
+<p><a href="{{ url_for('admin.employees', k='night') }}">Kollel Chatzos</a> · <a href="{{ url_for('admin.employees', k='day') }}">Kollel Horaah</a>
 {% if orphans or kollel == 'none' %} · <a class="warn" href="{{ url_for('admin.employees', k='none') }}">In no kollel ({{ orphans }})</a>{% endif %}
 <span class="muted"> · {{ emps|length }} here. An avrech in both kollels appears on both pages.</span></p>
 {% if no_id %}<p class="warn">{{ no_id }} active avrechim here have no ID number (ת.ז).</p>{% endif %}
@@ -427,7 +427,7 @@ def employees():
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th>ID (ת.ז)</th><th>Phone</th><th>Role</th><th>Shift</th><th>Shuttle</th><th>Rate/hour</th><th>Language</th><th>Status</th><th></th></tr>
 {% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{% if x.id_number %}{{ x.id_number }}{% else %}<span class="warn">missing</span>{% endif %}</td><td>{{ x.phone or '' }}{% if x.phone2 %}<br><span class="muted">{{ x.phone2 }}</span>{% endif %}</td>
 <td>{{ roles[x.role] }}{% if x.is_driver %} · driver{% endif %}
-<span class="muted">{{ 'night' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'day' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
+<span class="muted">{{ 'Chatzos' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'Horaah' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'Maor Chaim', 2: 'Darom'}.get(x.shuttle_group, '') }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">not set</span>{% else %}{{ r }}{% endif %}</td>
 <td>{{ langs[x.language] }}{% if x.shuttle_group %} · {{ x.shuttle_calls or '?' }} calls{% endif %}</td>
 <td>{% if removed(x) %}<span class="warn">removed (2 months)</span>
@@ -625,7 +625,7 @@ def import_page():
 <div class="box"><form method="post" enctype="multipart/form-data">
 Files from the old system (CSV or Excel, you can choose many at once): <input type="file" name="file" multiple required accept=".csv,.txt,.xlsx"> <button>Check</button>
 </form><p class="muted">Columns: זהות, שם משפחה, שם פרטי, כניסה, יציאה. Avrechim are matched by ID number (ת.ז), otherwise by name.
-Records between 14:00 and 20:00 go to the day kollel, the rest to the night kollel.
+Records between 14:00 and 20:00 go to Kollel Horaah, the rest to Kollel Chatzos.
 Nothing is saved until you press Import. Records already in the system are skipped.</p></div>
 {% if rows %}
 {% if warns %}<div class="box" style="border-color:#c62828"><b>Please check:</b><ul>{% for w in warns %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
@@ -688,7 +688,7 @@ def registrations_csv(trip):
                     headers={"Content-Disposition": f"attachment; filename={trip}.csv"})
 
 
-# ---- day kollel ------------------------------------------------------------
+# ---- Kollel Horaah ------------------------------------------------------------
 
 def day_rows(hy, hm, until=None):
     with db.connect() as c:
@@ -710,7 +710,7 @@ def day_payroll():
     ny, nm = hebcal.next_month(hy, hm)
     days = schedule.day_dates(hy, hm)
     total = round(sum(r["total"] for r in rows), 2)
-    body = """<h1>Day kollel · {{ title }}</h1>
+    body = """<h1>Kollel Horaah · {{ title }}</h1>
 <p class="muted">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }} · {{ days|length }} kollel days (Sun–Thu, 16:00–19:00, clock-in from 15:00) ·
 <a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a> ·
 <br>Months with records: {% for y, m, name in data_months(program) %}<a href="?hy={{y}}&hm={{m}}" {% if y == hy and m == hm %}style="font-weight:700;text-decoration:none"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %} ·
@@ -720,11 +720,11 @@ def day_payroll():
 <div class="wrap"><table><tr><th>Name</th><th class="right">Days</th><th class="right">On time</th><th class="right">Hours</th>
 <th class="right">Attendance</th><th class="right">Hours pay</th><th class="right">On-time pay</th><th class="right">Total ₪</th></tr>
 {% for r in rows %}<tr><td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a></td>
-{% if r.vacation %}<td colspan="6" class="muted">No day kollel this month – average of the last 3 months</td>
+{% if r.vacation %}<td colspan="6" class="muted">No Kollel Horaah this month – average of the last 3 months</td>
 {% else %}<td class="right">{{ r.days }} / {{ r.held }}</td><td class="right">{{ r.kept }}</td><td class="right">{{ r.hours }}</td>
 <td class="right">{{ (r.percent * 100)|round(1) }}%</td><td class="right">{{ '%.2f'|format(r.base) }}</td>
 <td class="right">{{ '%.2f'|format(r.keep) }}{% if r.average %} <span class="muted">+ {{ '%.2f'|format(r.average) }} average</span>{% endif %}</td>{% endif %}<td class="right"><b>{{ '%.2f'|format(r.total) }}</b></td></tr>
-{% else %}<tr><td colspan="8" class="muted">No avrechim are marked "Day kollel" yet (Employees → edit).</td></tr>{% endfor %}
+{% else %}<tr><td colspan="8" class="muted">No avrechim are marked "Kollel Horaah" yet (Employees → edit).</td></tr>{% endfor %}
 </table></div>
 <p class="muted">800 ₪ a month divided by the month's kollel hours, for the hours present. 200 ₪ a month divided by the
 month's kollel days, for each day he came by 16:00. Nisan and Tishrei: the average of the last 3 months. Av: 1–7 Av by attendance, the rest of the month by the average.

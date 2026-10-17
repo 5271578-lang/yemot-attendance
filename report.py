@@ -134,7 +134,7 @@ def build(hy, hm, until=None):
 
 
 def build_day(hy, hm):
-    """(subject, html, csv_text): the day kollel, rosh chodesh to rosh chodesh. Paid by Ohr Hatzadik."""
+    """(subject, html, csv_text): Kollel Horaah, rosh chodesh to rosh chodesh. Paid by Ohr Hatzadik."""
     month = f"{hebcal.month_name(hm, hy, 'he')} {hy}"
     with db.connect() as c:
         emps = c.execute("SELECT * FROM employees ORDER BY name").fetchall()
@@ -153,7 +153,7 @@ def build_day(hy, hm):
                          f"<td {td}>{s['hours']:.1f}</td><td {td}>{s['days']} / {s['held']}</td><td {td}>{s['kept']}</td>"
                          f"<td {td}>{s['base']:,.0f}</td><td {td}><b>{s['total']:,.0f}</b></td></tr>")
     html = f"""<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<h2 style="color:#1f3a5f;margin:0 0 8px">כולל יום, סיכום חודש {month}</h2>
+<h2 style="color:#1f3a5f;margin:0 0 8px">כולל הוראה, סיכום חודש {month}</h2>
 <p>סך הכל לתשלום: <b>{total:,.0f} ש"ח</b>, הכל על ידי כולל אור הצדיק. ימי כולל בחודש: {days}.</p>
 <table style="border-collapse:collapse" dir="rtl">
 <tr><th {th}>שם</th><th {th}>נוכחות</th><th {th}>שעות</th><th {th}>ימים</th><th {th}>שמירת הזמן</th>
@@ -171,7 +171,7 @@ def build_day(hy, hm):
                     s["base"], s["keep"], s["total"]])
     w.writerow([])
     w.writerow(["", "סך הכל, על ידי כולל אור הצדיק", total])
-    return f"סיכום כולל יום - {month}", html, "\ufeff" + buf.getvalue()
+    return f"סיכום כולל הוראה - {month}", html, "\ufeff" + buf.getvalue()
 
 
 def send_day(hy, hm):
@@ -223,7 +223,7 @@ def release(key, info):
 
 
 def run_day_once():
-    """On the 1st of a Hebrew month (from REPORT_HOUR): the day kollel summary of the month that just ended."""
+    """On the 1st of a Hebrew month (from REPORT_HOUR): Kollel Horaah summary of the month that just ended."""
     if not enabled():
         return None
     now = db.now()

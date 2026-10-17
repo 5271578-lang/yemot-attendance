@@ -149,7 +149,7 @@ def next_opening(emp, dt):
     return min(options) if options else dt
 
 
-# ---- the day kollel ------------------------------------------------------
+# ---- Kollel Horaah ------------------------------------------------------
 
 DAY_START = time(16, 0)
 DAY_END = time(19, 0)
@@ -171,7 +171,7 @@ def in_day(emp):
 
 
 def day_kollel_on(d):
-    """Is there a day kollel on date `d`? Sunday to Thursday, except vacations, Chanuka, Purim, fasts and so on."""
+    """Is there a Kollel Horaah on date `d`? Sunday to Thursday, except vacations, Chanuka, Purim, fasts and so on."""
     if d.weekday() not in (6, 0, 1, 2, 3):
         return False
     y, m, dd = hebcal.from_gregorian(d)
@@ -203,7 +203,7 @@ def day_dates(hy, hm):
 
 
 def day_average(emp, hy, hm):
-    """Average day kollel stipend of the last 3 regular months before (hy, hm)."""
+    """Average Kollel Horaah stipend of the last 3 regular months before (hy, hm)."""
     prev, y, m = [], hy, hm
     while len(prev) < DAY_AVERAGE_OF:
         y, m = hebcal.prev_month(y, m)
@@ -226,7 +226,7 @@ def _would_be_av_days(hy):
 
 
 def day_month_summary(emp, hy, hm, until=None):
-    """Day kollel stipend for one Hebrew month (rosh chodesh to rosh chodesh).
+    """Kollel Horaah stipend for one Hebrew month (rosh chodesh to rosh chodesh).
     Nisan, Tishrei: the 3-month average. Av: 1-7 Av by attendance, the rest of the month by the average."""
     if hm in (1, 7):
         avg = day_average(emp, hy, hm)
@@ -259,7 +259,7 @@ def day_month_summary(emp, hy, hm, until=None):
             lo, hi = max(cin, start), min(cout, end)
             if hi > lo:
                 minutes += (hi - lo).total_seconds() / 60
-        if min(db.parse(r["clock_in"]) for r in recs) <= start:          # day kollel: exactly 16:00
+        if min(db.parse(r["clock_in"]) for r in recs) <= start:          # Kollel Horaah: exactly 16:00
             kept += 1
     held_minutes = len(upto) * 180
     base = round(minutes * per_minute, 2)
@@ -518,7 +518,7 @@ def payer_split(s):
     }
 
 
-# The night kollel stipend month: from Rosh Chodesh (the 30th of the month before, when there is one) to the 29th.
+# The Kollel Chatzos stipend month: from Rosh Chodesh (the 30th of the month before, when there is one) to the 29th.
 # Once only: Cheshvan 5787 started on 27 Tishrei (the stipend was paid up to 26 Tishrei).
 NIGHT_MONTH_LAST_DAY = 29
 NIGHT_MONTH_SPECIAL_START = {(5787, 8): (5787, 7, 27)}
