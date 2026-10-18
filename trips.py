@@ -63,6 +63,15 @@ def open_trips(emp=None, now=None):
     return [t for t in TRIPS if now < t["until"] and (emp is None or for_employee(t, emp))]
 
 
+MANAGER_DAYS_AFTER = 14     # managers can still hear the status this long after it closed
+
+
+def recent_trips(now=None):
+    from datetime import timedelta
+    now = now or db.now()
+    return [t for t in TRIPS if now < t["until"] + timedelta(days=MANAGER_DAYS_AFTER)]
+
+
 def by_key(key, emp=None, now=None):
     return next((t for t in open_trips(emp, now) if t["key"] == key), None)
 

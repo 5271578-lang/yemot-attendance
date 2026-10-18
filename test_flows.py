@@ -494,6 +494,87 @@ def test_tefila_bekoach_key_8():
     assert not tefila.is_open()
 
 
+def test_manager_tools_sent_groups_and_voice():
+    import ivr, tefila, trips
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET name='משה כהן' WHERE emp_number='300'")
+        c.execute("UPDATE employees SET name='יעקב לוי' WHERE emp_number='301'")
+        c.execute("UPDATE employees SET name='משה לוינשטיין' WHERE emp_number='303'")
+    assert ",no,record," in Call("0503333331").start() or True
+    # new group: Kollel Chatzos without shuttles (303 only in shift A)
+    c = menu_call("0502222222"); c.press("4"); c.press("2")
+    t = c.press("3")
+    assert ",record," in t and "/8," in t and ",,yes,no,1,180" in t          # recording with the review menu
+    c.press("/8/ns.wav")
+    with db.connect() as conn:
+        m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (m["id"],))]
+    assert m["recipient_label"] == "כולל חצות, מי שלא רשום בהסעות" and to == ["303"]
+    # the manager hears what he sent
+    c = menu_call("0502222222"); c.press("4")
+    t = c.press("3")
+    assert "הודעה ששלחת" in t and "שמעו אותה 0 מתוך 1" in t and "f-/8/ns" in t
+    # status of another avrech by voice: one match -> confirm
+    c = menu_call("0502222222"); c.press("6")
+    assert "אמרו את שם האברך" in c.press("2")
+    t = c.press("כהן")
+    assert "t-משה כהן.t-לאישור הקישו 1" in t
+    assert "המצב של משה כהן" in c.press("1")
+    # two matches -> choose
+    c = menu_call("0502222222"); c.press("6"); c.press("2")
+    t = c.press("משה")
+    assert "למשה כהן הקישו" in t and "למשה לוינשטיין הקישו" in t
+    # not in his scope (shift B) / not found
+    c = menu_call("0502222222"); c.press("6"); c.press("2")
+    assert "לא נמצא" in c.press("Worker B1")
+    # message to one avrech by voice
+    c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("6")
+    t = c.press("יעקב לוי")
+    assert "t-יעקב לוי.t-לאישור" in t
+    assert ",record," in c.press("1")
+    # an avrech has no manager options
+    assert "למצב של אברך אחר" not in menu_call("0503333331").press("6")
+    assert match_ok(ivr)
+
+
+def match_ok(ivr):
+    people = [{"name": "חיים בנימין אנשין"}, {"name": "שמעון קעניג"}, {"name": "שמעון קרמר"}]
+    return [p["name"] for p in ivr.match_names("קעניג", people)] == ["שמעון קעניג"] and \
+        len(ivr.match_names("שמעון", people)) == 2 and ivr.match_names("", people) == []
+
+
+def test_manager_trip_and_tefila_status():
+    import tefila, trips
+    seed()
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("2026-10-18,06:21:40\n2026-10-19,06:22:20\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 18, 21, 0)
+    c = menu_call("0503333331"); c.press("7"); c.press("1")
+    c = menu_call("0503333332"); c.press("7"); c.press("2")
+    m = menu_call("0502222222")
+    assert "t-להרשמה לנסיעה הקישו 1.t-לשמיעת מצב ההרשמה" in m.press("7")
+    t = m.press("2")
+    assert "לנסיעה נרשמו 2 אברכים" in t and "1 כולל תפילת שחרית" in t
+    assert "Worker A1" in m.press("1")
+    at(2026, 10, 25, 9, 0)                                            # closed: managers still hear the status
+    assert "למצב ההרשמה לנסיעה הקישו 7" in Call("0502222222").start()
+    assert "לנסיעה לטבריה" not in Call("0503333331").start()
+    assert "לנסיעה נרשמו 2" in menu_call("0502222222").press("7")
+    # tefila: an avrech registers, the manager hears the status at any hour during the campaign
+    at(2026, 10, 19, 5, 30)
+    c = menu_call("0503333331"); c.press("8"); c.press("1")
+    at(2026, 10, 19, 10, 0)
+    m = menu_call("0501111111")
+    t = m.press("8")
+    assert "היום נרשמו 1 אברכים" in t and "1 כניסות להגרלה, של 1 אברכים" in t
+    assert "Worker A1" in m.press("2")
+    m.press("1")
+    t = m.press("Digits-300"); t = m.press("1")
+    assert "לWorker A1 יש 1 כניסות להגרלה" in t
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():
@@ -523,12 +604,12 @@ def test_group_message_uses_tzintuk():
     calls = []
     nbs.run_tzintuk = lambda phones: (calls.append(phones) or (True, "9"))
     c = menu_call("0502222222")
-    c.press("4"); c.press("2"); c.press("2")                         # shuttle group 1
+    c.press("4"); c.press("2"); c.press("4")                         # shuttle group 1
     c.press("/8/g.wav")
     _time.sleep(0.2)
     assert calls and sorted(calls[-1]) == ["0503333331", "0503333335", "0504444444"]
     c = menu_call("0502222222")
-    c.press("4"); c.press("2"); c.press("4"); c.press("301")         # one person: voice call
+    c.press("4"); c.press("2"); c.press("6"); c.press("Digits-301"); c.press("1")         # one person: voice call
     SENT.clear()
     c.press("/8/p.wav")
     _time.sleep(0.2)
@@ -912,13 +993,13 @@ def test_waiting_messages_and_newest_first():
     rung = []
     nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
     for name in ("/8/old.wav", "/8/new.wav"):
-        c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("2"); c.press(name)
+        c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("4"); c.press(name)
         NOW[0] += timedelta(minutes=5)
     w = Call("0503333331")
     t = w.start()
     assert "קיבלת 2 הודעות חדשות, האחרונה מאת Site Mgr A" in t and "להמשך לקו הקישו 2" in t
     assert "קיבלת" not in Call("0503333331").start()                # announced only on the first call
-    c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("2"); c.press("/8/third.wav")
+    c = menu_call("0502222222"); c.press("4"); c.press("2"); c.press("4"); c.press("/8/third.wav")
     assert "קיבלת הודעה מאת Site Mgr A" in Call("0503333331").start()  # a new message is announced again
     w = menu_call("0503333331"); w.press("4")
     assert "1 מתוך 3" in w.press("1") and "f-/8/third" in w.last     # newest first
@@ -1013,7 +1094,7 @@ def test_day_kollel():
     # messages: the day manager reaches only day avrechim; a day avrech's message reaches the day manager
     rung = []
     nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
-    m = menu_call("0502222299"); m.press("4"); m.press("2"); m.press("1"); m.press("/8/day.wav")
+    m = menu_call("0502222299"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/day.wav")
     _, names = recipients_of_last()
     assert names == ["No Shuttle", "Worker A1", "Worker A2"]
     w = menu_call("0503333332"); w.press("4"); w.press("2"); w.press("/8/q.wav")
@@ -1066,7 +1147,7 @@ def test_additional_phone_in_settings():
     # 'all': a message to the group rings the additional phone too
     rung = []
     nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
-    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/x.wav")
+    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("4"); m.press("/8/x.wav")
     _time.sleep(0.2)
     assert "0581112233" in rung[-1]
     # shuttle only: not rung for messages; menu shows the mode; delete
@@ -1074,7 +1155,7 @@ def test_additional_phone_in_settings():
     t = c.press("5")
     assert "בכל ההודעות" in t
     c.press("2"); c.press("1"); c.press("1")
-    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/y.wav")
+    m = menu_call("0502222222"); m.press("4"); m.press("2"); m.press("4"); m.press("/8/y.wav")
     _time.sleep(0.2)
     assert "0581112233" not in rung[-1]
     c = menu_call("0503333331"); c.press("9"); c.press("5")

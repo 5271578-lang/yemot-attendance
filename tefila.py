@@ -75,6 +75,12 @@ def is_open(emp=None, now=None):
     return bool(w and w[0] <= now < w[1])
 
 
+def manager_period(now=None):
+    """Managers can hear the status from the first day until two weeks after the end (the raffle)."""
+    d = (now or db.now()).date()
+    return CAMPAIGN["first"] <= d <= CAMPAIGN["last"] + timedelta(days=14)
+
+
 def register(emp_id, now=None):
     """Registers today's entry. Returns (new, total entries of this avrech)."""
     now = now or db.now()

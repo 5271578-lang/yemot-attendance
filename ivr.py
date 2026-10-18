@@ -90,8 +90,18 @@ class Reply:
     def record(self, step, prompt, file_name, **ctx):
         self.say(prompt)
         name = self._next_name()
-        fields = [name, "no", "record", RECORD_FOLDER, file_name, "no", "yes", "no", "1", "180"]
+        # position 6 empty = the phone system's own menu after recording: listen, approve, record again
+        fields = [name, "no", "record", RECORD_FOLDER, file_name, "", "yes", "no", "1", "180"]
         self.action = f"read={self._messages()}={','.join(fields)}"
+        self.s["data"]["await"] = {"name": name, "step": step, "ctx": ctx}
+        self.s["data"]["last_action"] = self.action
+        return self
+
+    def ask_voice(self, step, prompt, **ctx):
+        """Speech recognition (the caller can also key digits). The answer is the text, or 'Digits-123'."""
+        self.say(prompt)
+        name = self._next_name()
+        self.action = f"read={self._messages()}={name},no,voice,he-IL,,9"
         self.s["data"]["await"] = {"name": name, "step": step, "ctx": ctx}
         self.s["data"]["last_action"] = self.action
         return self
@@ -321,12 +331,20 @@ def main_menu(r):
         txt += ". " + r.t("menu_driver")
         keys.append("3")
     rest = r.t("menu_rest")
-    if tefila.is_open(emp):
+    if tefila.is_open(emp) or (is_manager(emp) and tefila.manager_period()):
         rest += ". " + r.t("tefila_menu")
         keys.append(tefila.CAMPAIGN["key"])
+    shown = set()
     for trip in trips.open_trips(emp):
         rest += ". " + trip["menu"].get(r.lang, trip["menu"]["he"])
         keys.append(trip["key"])
+        shown.add(trip["key"])
+    if is_manager(emp):
+        for trip in trips.recent_trips():
+            if trip["key"] not in shown:
+                rest += ". " + r.t("trip_status_menu", digit=trip["key"])
+                keys.append(trip["key"])
+                shown.add(trip["key"])
     r.ask("main_choice", txt + ". " + rest + ". " + r.t("menu_switch"), allowed=keys)
 
 
@@ -345,8 +363,18 @@ def main_choice(r, answer):
         return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
+    if answer == tefila.CAMPAIGN["key"] and is_manager(emp) and tefila.manager_period():
+        if tefila.is_open(emp):
+            return r.ask("tefila_manager_choice", r.t("tefila_manager_menu"), allowed=["1", "2"])
+        return tefila_status(r)
     if answer == tefila.CAMPAIGN["key"] and tefila.is_open(emp):
         return tefila_start(r)
+    if is_manager(emp):
+        trip = next((t for t in trips.recent_trips() if t["key"] == answer), None)
+        if trip:
+            if trips.by_key(answer, emp):
+                return r.ask("trip_manager_choice", r.t("trip_manager_menu"), allowed=["1", "2"], trip=trip["id"])
+            return trip_status(r, trip)
     trip = trips.by_key(answer, emp)
     if trip:
         return trip_start(r, trip)
@@ -382,6 +410,79 @@ def tefila_confirm(r, answer):
     new, n = tefila.register(r.s["employee_id"], call_start(r))
     r.say(r.t("tefila_saved" if new else "tefila_already", entries=tefila_entries_text(r, n)))
     r.hangup()
+
+
+@step
+def tefila_manager_choice(r, answer):
+    if answer == "1":
+        return tefila_start(r)
+    tefila_status(r)
+
+
+def tefila_status(r):
+    today = db.now().date().isoformat()
+    with db.connect() as c:
+        n_today = c.execute("SELECT COUNT(*) FROM tefila_entries WHERE campaign=? AND day=?",
+                            (tefila.CAMPAIGN["id"], today)).fetchone()[0]
+    tot = tefila.totals()
+    r.say(r.t("tefila_status", today=n_today, entries=sum(x["entries"] for x in tot), people=len(tot)))
+    r.ask("tefila_status_choice", r.t("tefila_status_menu"), allowed=["1", "2", "0"])
+
+
+@step
+def tefila_status_choice(r, answer):
+    if answer == "1":
+        return pick_avrech(r, "tefila")
+    if answer == "2":
+        names = [x["name"] for x in tefila.entries_of_day(db.now().date().isoformat())]
+        r.say(r.t("tefila_today_names", names=", ".join(names)) if names else r.t("tefila_today_none"))
+        return tefila_status(r)
+    main_menu(r)
+
+
+def tefila_status_of(r, emp):
+    with db.connect() as c:
+        row = c.execute("SELECT COUNT(*) AS n, MAX(day) AS last FROM tefila_entries WHERE campaign=? AND employee_id=?",
+                        (tefila.CAMPAIGN["id"], emp["id"])).fetchone()
+    if not row["n"]:
+        r.say(r.t("tefila_person_none", name=emp["name"]))
+    else:
+        last = datetime.fromisoformat(row["last"])
+        y, m, d = hebcal.from_gregorian(last.date())
+        r.say(r.t("tefila_person", name=emp["name"], n=row["n"],
+                  last=f"{d} ב{hebcal.month_name(m, y, 'he')}"))
+    tefila_status(r)
+
+
+@step
+def trip_manager_choice(r, answer, trip):
+    t = trips.by_id(trip)
+    if answer == "1" and t and trips.by_key(t["key"], employee(r)):
+        return trip_start(r, t)
+    trip_status(r, t)
+
+
+def trip_status(r, trip):
+    rows = trips.signups(trip["id"])
+    parts = [r.t("trip_status_option", n=sum(1 for x in rows if x["choice"] == k), option=_lang(r, o))
+             for k, o in trip["options"].items()]
+    r.say(r.t("trip_status", n=len(rows), parts=", ".join(parts)))
+    r.ask("trip_status_choice", r.t("trip_status_names_menu"), allowed=["1", "0"], trip=trip["id"])
+
+
+@step
+def trip_status_choice(r, answer, trip):
+    t = trips.by_id(trip)
+    if answer == "1" and t:
+        rows = trips.signups(t["id"])
+        for k, o in t["options"].items():
+            names = [x["name"] for x in rows if x["choice"] == k]
+            if names:
+                r.say(_lang(r, o) + ": " + ", ".join(names))
+        if not rows:
+            r.say(r.t("trip_none"))
+        return trip_status(r, t)
+    main_menu(r)
 
 
 # ---- temporary registration extensions (trips.py) ------------------------
@@ -636,7 +737,22 @@ def fix_time(r, answer, kind, days_ago):
 # ---- 6: personal status ---------------------------------------------------
 
 def status(r):
-    emp = employee(r)
+    me = employee(r)
+    if is_manager(me):
+        return r.ask("status_who", r.t("status_manager_menu"), allowed=["1", "2"])
+    status_of(r, me)
+
+
+@step
+def status_who(r, answer):
+    if answer == "2" and is_manager(employee(r)):
+        return pick_avrech(r, "status")
+    status_of(r, employee(r))
+
+
+def status_of(r, emp, name=False):
+    if name:
+        r.say(r.t("status_of", name=emp["name"]))
     today = schedule.session_date(db.now())
     hy, hm, _ = hebcal.from_gregorian(today)
     month = hebcal.month_name(hm, hy, "en" if r.lang == "en" else "he")
@@ -688,7 +804,9 @@ def is_manager(emp):
 
 def ext4(r):
     emp = employee(r)
-    r.ask("ext4_choice", r.t("ext4_manager" if is_manager(emp) else "ext4_employee"), allowed=["1", "2"])
+    if is_manager(emp):
+        return r.ask("ext4_choice", r.t("ext4_manager"), allowed=["1", "2", "3"])
+    r.ask("ext4_choice", r.t("ext4_employee"), allowed=["1", "2"])
 
 
 @step
@@ -696,6 +814,8 @@ def ext4_choice(r, answer):
     emp = employee(r)
     if answer == "1":
         return start_listening(r, emp)
+    if answer == "3" and is_manager(emp):
+        return start_sent(r, emp)
     if is_manager(emp):
         return send_menu(r)
     if emp["is_driver"] and emp["shuttle_group"]:
@@ -906,14 +1026,48 @@ def after_message(r, answer, i):
     play(r, i + 1)
 
 
+def start_sent(r, emp):
+    since = (db.now() - timedelta(days=MESSAGE_HISTORY_DAYS)).isoformat()
+    with db.connect() as c:
+        ids = [x["id"] for x in c.execute("SELECT id FROM messages WHERE sender_id=? AND created_at>=? "
+                                          "ORDER BY created_at DESC", (emp["id"], since))]
+    if not ids:
+        r.say(r.t("no_sent"))
+        return main_menu(r)
+    r.s["data"]["sentlist"] = ids
+    play_sent(r, 0)
+
+
+def play_sent(r, i, header=True):
+    ids = r.s["data"].get("sentlist", [])
+    if i >= len(ids):
+        r.say(r.t("end_messages"))
+        return main_menu(r)
+    with db.connect() as c:
+        m = c.execute("SELECT * FROM messages WHERE id=? AND sender_id=?", (ids[i], r.s["employee_id"])).fetchone()
+        if m is None:
+            return play_sent(r, i + 1)
+        total, heard = c.execute("SELECT COUNT(*), COUNT(listened_at) FROM message_recipients WHERE message_id=?",
+                                 (m["id"],)).fetchone()
+    if header:
+        r.say(r.t("sent_header", n=i + 1, total_msgs=len(ids), label=m["recipient_label"] or "",
+                  when=say_when(r, db.parse(m["created_at"])), heard=heard, total=total))
+    r.file(m["recording_path"])
+    r.ask("after_sent", r.t("after_msg"), allowed=["1", "2"], i=i)
+
+
+@step
+def after_sent(r, answer, i):
+    play_sent(r, i, header=answer != "1") if answer == "1" else play_sent(r, i + 1)
+
+
 # -- 9 -> 2: send
 
 def send_menu(r):
     emp = employee(r)
     if not is_manager(emp):                                   # regular employees never send to staff
         return ext4(r)
-    r.ask("send_choice", r.t("send_menu_tech" if emp["role"] == "tech_manager" else "send_menu_onsite"),
-          allowed=["1", "2", "3", "4"])
+    r.ask("send_choice", r.t("send_menu"), allowed=["1", "2", "3", "4", "5", "6", "0"])
 
 
 @step
@@ -921,13 +1075,16 @@ def send_choice(r, answer):
     emp = employee(r)
     if not is_manager(emp):
         return ext4(r)
-    targets = {"1": {"type": "shift"}, "2": {"type": "group", "group": 1}, "3": {"type": "group", "group": 2}}
+    if answer == "0":
+        return main_menu(r)
+    targets = {"1": {"type": "night"}, "2": {"type": "day"}, "3": {"type": "night_no_shuttle"},
+               "4": {"type": "group", "group": 1}, "5": {"type": "group", "group": 2}}
     if answer in targets:
         if not resolve_recipients(emp, targets[answer]):
             r.say(r.t("no_recipients"))
             return send_menu(r)
         return record_message(r, targets[answer])
-    r.ask("send_employee", r.t("enter_target"), digits=None, timeout=10)
+    pick_avrech(r, "message")
 
 
 @step
@@ -943,6 +1100,90 @@ def send_employee(r, answer):
     if emp["role"] == "onsite_manager" and target["shift"] != emp["shift"]:
         r.say(r.t("target_not_in_shift"))
         return send_menu(r)
+    r.say(r.t("target_is", name=target["name"]))
+    record_message(r, {"type": "employee", "employee_id": target["id"]})
+
+
+_FINALS = str.maketrans("ךםןףץ", "כמנפצ")
+
+
+def _norm_words(text_):
+    text_ = re.sub(r"[\u0591-\u05C7'\"`׳״\-.,]", " ", text_ or "")
+    return [w.translate(_FINALS) for w in text_.split() if w]
+
+
+def match_names(spoken, people):
+    """Avrechim whose name fits what was said: every word said (2+ letters) that fits a word of the name counts."""
+    import difflib
+    said = [w for w in _norm_words(spoken) if len(w) >= 2 and w not in ("הרב", "רבי", "ר")]
+    if not said:
+        return []
+    scored = []
+    for e in people:
+        words = _norm_words(e["name"])
+        score = 0.0
+        for w in said:
+            best = max((1.0 if w == x else difflib.SequenceMatcher(None, w, x).ratio() for x in words), default=0)
+            if best >= 0.75:
+                score += best
+        if score:
+            scored.append((score, e))
+    if not scored:
+        return []
+    top = max(sc for sc, _ in scored)
+    return [e for sc, e in sorted(scored, key=lambda x: (-x[0], x[1]["name"])) if sc >= top - 0.25]
+
+
+def pick_avrech(r, purpose, tries=0):
+    r.ask_voice("picked_avrech", r.t("say_name"), purpose=purpose, tries=tries)
+
+
+@step
+def picked_avrech(r, answer, purpose, tries):
+    me = employee(r)
+    if not is_manager(me):
+        return main_menu(r)
+    scope = manager_scope(me)
+    ans = (answer or "").strip()
+    digits = ans[len("Digits-"):] if ans.startswith("Digits-") else (ans if ans.isdigit() else None)
+    if digits:
+        found = [e for e in scope if e["emp_number"] == digits]
+    else:
+        found = match_names(ans, scope)
+    if not found:
+        r.say(r.t("avrech_not_found"))
+        return pick_avrech(r, purpose, tries + 1) if tries < 2 else main_menu(r)
+    if len(found) > 6:
+        r.say(r.t("avrech_too_many", n=len(found)))
+        return pick_avrech(r, purpose, tries + 1) if tries < 2 else main_menu(r)
+    ids = [e["id"] for e in found]
+    if len(found) == 1:
+        return r.ask("avrech_choice", r.t("avrech_confirm", name=found[0]["name"]), allowed=["1", "2"],
+                     purpose=purpose, ids=ids + [0])
+    opts = ". ".join(r.t("avrech_option", name=e["name"], n=i + 1) for i, e in enumerate(found))
+    r.ask("avrech_choice", opts + ". " + r.t("avrech_again"), allowed=[str(i + 1) for i in range(len(found))] + ["0"],
+          purpose=purpose, ids=ids)
+
+
+@step
+def avrech_choice(r, answer, purpose, ids):
+    if len(ids) == 2 and ids[1] == 0:                     # one name: 1 = yes, 2 = search again
+        if answer != "1":
+            return pick_avrech(r, purpose)
+        chosen = ids[0]
+    elif answer == "0" or not answer.isdigit() or int(answer) > len(ids):
+        return pick_avrech(r, purpose)
+    else:
+        chosen = ids[int(answer) - 1]
+    me = employee(r)
+    with db.connect() as c:
+        target = c.execute("SELECT * FROM employees WHERE id=? AND active=1", (chosen,)).fetchone()
+    if target is None or not is_manager(me) or target["id"] not in {e["id"] for e in manager_scope(me)}:
+        return main_menu(r)
+    if purpose == "status":
+        return status_of(r, target, name=True)
+    if purpose == "tefila":
+        return tefila_status_of(r, target)
     r.say(r.t("target_is", name=target["name"]))
     record_message(r, {"type": "employee", "employee_id": target["id"]})
 
@@ -970,16 +1211,15 @@ def resolve_recipients(sender, target):
         return group + drivers
     if not is_manager(sender):
         return []
-    if sender["role"] == "tech_manager":
-        scope = everyone
-    else:
-        scope = []
-        if schedule.in_night(sender) and sender["shift"]:              # night: his shift
-            scope = [e for e in everyone if e["shift"] == sender["shift"] and schedule.in_night(e)]
-        if schedule.in_day(sender):                                     # Kollel Horaah manager: the day avrechim
-            scope += [e for e in everyone if schedule.in_day(e) and e not in scope]
+    scope = manager_scope(sender, everyone)
     if t == "shift":
         return scope
+    if t == "night":
+        return [e for e in scope if schedule.in_night(e)]
+    if t == "day":
+        return [e for e in scope if schedule.in_day(e)]
+    if t == "night_no_shuttle":
+        return [e for e in scope if schedule.in_night(e) and not e["shuttle_group"] and not e["is_driver"]]
     if t == "group":
         return [e for e in scope if e["shuttle_group"] == target["group"]]
     if t == "employee":
@@ -987,10 +1227,30 @@ def resolve_recipients(sender, target):
     return []
 
 
+def manager_scope(sender, everyone=None):
+    """Who a manager can send to / look up: everyone for the tech manager; for an on-site manager his
+    shift in Kollel Chatzos (all of it if he has no shift) and Kollel Horaah if he manages it."""
+    if everyone is None:
+        with db.connect() as c:
+            everyone = c.execute("SELECT * FROM employees WHERE active=1 AND id<>?", (sender["id"],)).fetchall()
+    if sender["role"] == "tech_manager":
+        return list(everyone)
+    scope = []
+    if schedule.in_night(sender):
+        scope = [e for e in everyone if schedule.in_night(e) and (not sender["shift"] or e["shift"] == sender["shift"])]
+    if schedule.in_day(sender):
+        scope += [e for e in everyone if schedule.in_day(e) and e not in scope]
+    return scope
+
+
+TARGET_LABELS = {"shift": "כל העובדים", "managers": "המנהלים", "night": "כולל חצות", "day": "כולל הוראה",
+                 "night_no_shuttle": "כולל חצות, מי שלא רשום בהסעות"}
+
+
 def target_label(target, recipients):
     if target["type"] == "driver_group":
         return "קבוצת ההסעה של הנהג והנהגים"
-    return {"shift": "כל העובדים", "managers": "המנהלים"}.get(target["type"]) or (
+    return TARGET_LABELS.get(target["type"]) or (
         GROUPS_SHORT["he"].get(target["group"], f"קבוצה {target['group']}") if target["type"] == "group" else
         (recipients[0]["name"] if recipients else "עובד"))
 
@@ -1027,7 +1287,7 @@ def recorded(r, answer, target):
         c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)",
                       [(msg_id, e["id"]) for e in recipients])
     if NOTIFY_BY_CALL and nbs.enabled():
-        by_tzintuk = target["type"] in ("shift", "group", "driver_group")
+        by_tzintuk = target["type"] in ("shift", "group", "driver_group", "night", "day", "night_no_shuttle")
         threading.Thread(target=notify, args=(msg_id, by_tzintuk), daemon=True).start()
     r.say(r.t("saved_to_managers" if target["type"] == "managers" else "saved_to_employees"))
     main_menu(r)
