@@ -533,6 +533,15 @@ def test_manager_tools_sent_groups_and_voice():
     t = c.press("יעקב לוי")
     assert "t-יעקב לוי.t-לאישור" in t
     assert ",record," in c.press("1")
+    # several avrechim at once: 300*303*999#
+    c = menu_call("0501111111"); c.press("4"); c.press("2"); c.press("7")
+    t = c.press("300*303*999")
+    assert "999" in t and "נבחרו 2 אברכים" in t and "משה כהן" in t
+    c.press("1"); SENT.clear(); c.press("/8/sev.wav")
+    with db.connect() as conn:
+        m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (m["id"],)).fetchone()[0]
+    assert n == 2 and "משה כהן" in m["recipient_label"]
     # an avrech has no manager options
     assert "למצב של אברך אחר" not in menu_call("0503333331").press("6")
     assert match_ok(ivr)

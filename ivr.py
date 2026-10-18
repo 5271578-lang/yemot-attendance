@@ -1067,7 +1067,7 @@ def send_menu(r):
     emp = employee(r)
     if not is_manager(emp):                                   # regular employees never send to staff
         return ext4(r)
-    r.ask("send_choice", r.t("send_menu"), allowed=["1", "2", "3", "4", "5", "6", "0"])
+    r.ask("send_choice", r.t("send_menu"), allowed=["1", "2", "3", "4", "5", "6", "7", "0"])
 
 
 @step
@@ -1084,7 +1084,34 @@ def send_choice(r, answer):
             r.say(r.t("no_recipients"))
             return send_menu(r)
         return record_message(r, targets[answer])
+    if answer == "7":
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15)
     pick_avrech(r, "message")
+
+
+@step
+def send_several(r, answer):
+    """Several avrechim at once: employee numbers separated by star, e.g. 15*11*17#"""
+    me = employee(r)
+    if not is_manager(me):
+        return main_menu(r)
+    numbers = [x for x in re.split(r"[*#\s]+", answer or "") if x]
+    scope = {e["emp_number"]: e for e in manager_scope(me)}
+    found = [scope[n] for n in dict.fromkeys(numbers) if n in scope]
+    missing = [n for n in dict.fromkeys(numbers) if n not in scope]
+    if missing:
+        r.say(r.t("several_missing", numbers=", ".join(missing)))
+    if not found:
+        return send_menu(r)
+    r.say(r.t("several_chosen", n=len(found), names=", ".join(e["name"] for e in found)))
+    r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2"], ids=[e["id"] for e in found])
+
+
+@step
+def send_several_ok(r, answer, ids):
+    if answer != "1":
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15)
+    record_message(r, {"type": "employees", "ids": ids})
 
 
 @step
@@ -1224,6 +1251,8 @@ def resolve_recipients(sender, target):
         return [e for e in scope if e["shuttle_group"] == target["group"]]
     if t == "employee":
         return [e for e in scope if e["id"] == target["employee_id"]]
+    if t == "employees":
+        return [e for e in scope if e["id"] in set(target["ids"])]
     return []
 
 
@@ -1250,6 +1279,8 @@ TARGET_LABELS = {"shift": "כל העובדים", "managers": "המנהלים", "
 def target_label(target, recipients):
     if target["type"] == "driver_group":
         return "קבוצת ההסעה של הנהג והנהגים"
+    if target["type"] == "employees":
+        return ", ".join(e["name"] for e in recipients)
     return TARGET_LABELS.get(target["type"]) or (
         GROUPS_SHORT["he"].get(target["group"], f"קבוצה {target['group']}") if target["type"] == "group" else
         (recipients[0]["name"] if recipients else "עובד"))
