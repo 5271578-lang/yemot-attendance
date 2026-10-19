@@ -720,6 +720,22 @@ def test_manager_approves_corrections_and_adds_tefila_by_phone():
     a = attendance("301")
     assert db.parse(a[-1]["clock_in"]).strftime("%H:%M") == "02:25" and a[-1]["meron"] == 1
     assert db.parse(a[-1]["actual_in"]).strftime("%H:%M") == "01:00"
+    # the admin page follows the same rule: add 01:00 for a rider -> 2:25 + Meron; a non-rider keeps 01:00
+    client.post(f"/admin/employee/{emp('300')['id']}/attendance", headers=AUTH, data={"clock_in": "2026-11-19T01:00"})
+    a = attendance("300")[-1]
+    assert db.parse(a["clock_in"]).strftime("%H:%M") == "02:25" and a["meron"] == 1
+    client.post(f"/admin/employee/{emp('303')['id']}/attendance", headers=AUTH, data={"clock_in": "2026-11-19T01:00"})
+    a = attendance("303")[-1]
+    assert db.parse(a["clock_in"]).strftime("%H:%M") == "01:00" and a["meron"] == 0
+    # editing a rider's clock-in to 01:10 -> 2:25 + Meron; saving without changing the time keeps it
+    b = attendance("302")
+    client.post(f"/admin/employee/{emp('302')['id']}/attendance", headers=AUTH, data={"clock_in": "2026-11-19T02:40"})
+    aid = attendance("302")[-1]["id"]
+    client.post(f"/admin/attendance/{aid}", headers=AUTH, data={"clock_in": "2026-11-19T01:10", "clock_out": "", "note": ""})
+    a = attendance("302")[-1]
+    assert db.parse(a["clock_in"]).strftime("%H:%M") == "02:25" and a["meron"] == 1
+    client.post(f"/admin/attendance/{aid}", headers=AUTH, data={"clock_in": "2026-11-19T02:25", "clock_out": "", "note": "x"})
+    assert attendance("302")[-1]["meron"] == 1
     # tefila: the manager adds two avrechim to today's raffle
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("2026-10-19,06:22:20\n")

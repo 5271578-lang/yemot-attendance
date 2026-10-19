@@ -10,6 +10,16 @@ def program_of(dt):
     return "day" if 14 <= dt.hour < 20 else "night"
 
 
+def meron_rule(c, emp_id, t):
+    """(time to record, meron 0/1) for a night clock-in at `t`: riders are recorded at 2:25 (3:25),
+    and inside the shuttle window it is a Meron night. Others: the time as is."""
+    if program_of(t) != "night":
+        return t, 0
+    emp = c.execute("SELECT * FROM employees WHERE id=?", (emp_id,)).fetchone()
+    rec, is_meron = schedule.recorded_clock_in(emp, t)
+    return rec, 1 if is_meron else 0
+
+
 def apply_correction(c, corr):
     """Returns (ok, explanation)."""
     t = db.parse(corr["requested_time"])
@@ -21,10 +31,7 @@ def apply_correction(c, corr):
     if corr["kind"] == "in":
         asked = t
         meron = 0
-        if program == "night":                 # same rule as calling the line: riders are recorded at 2:25,
-            emp = c.execute("SELECT * FROM employees WHERE id=?", (corr["employee_id"],)).fetchone()
-            t, is_meron = schedule.recorded_clock_in(emp, t)        # and the shuttle window means Meron
-            meron = 1 if is_meron else 0
+        t, meron = meron_rule(c, corr["employee_id"], t)    # same rule as calling the line
         if rows:
             row = rows[0]
             if row["clock_out"] and db.parse(row["clock_out"]) <= t:

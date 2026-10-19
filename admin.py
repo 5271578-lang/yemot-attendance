@@ -298,10 +298,11 @@ def add_attendance(eid):
     t_in, t_out = parse_local(request.form["clock_in"]), parse_local(request.form.get("clock_out"))
     y, m, d = heb_fields(t_in)
     with db.connect() as c:
-        c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, heb_year, heb_month, heb_day, note, "
-                  "exit_confirmed, program) VALUES (?,?,?,?,?,?,?,1,?)",
-                  (eid, t_in.isoformat(), t_out.isoformat() if t_out else None, y, m, d,
-                   request.form.get("note") or "added by admin", program_of(t_in)))
+        rec, meron = meron_rule(c, eid, t_in)          # riders: 2:25, with Meron inside the shuttle window
+        c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, actual_in, meron, heb_year, heb_month, heb_day, "
+                  "note, exit_confirmed, program) VALUES (?,?,?,?,?,?,?,?,?,1,?)",
+                  (eid, rec.isoformat(), t_out.isoformat() if t_out else None, t_in.isoformat() if rec != t_in else None,
+                   meron, y, m, d, request.form.get("note") or "added by admin", program_of(t_in)))
     hy, hm = page_month(t_in)
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
@@ -316,9 +317,15 @@ def edit_attendance(aid):
             else:
                 t_in, t_out = parse_local(request.form["clock_in"]), parse_local(request.form.get("clock_out"))
                 y, m, d = heb_fields(t_in)
-                c.execute("UPDATE attendance SET clock_in=?, clock_out=?, heb_year=?, heb_month=?, heb_day=?, note=?, exit_confirmed=1 "
-                          "WHERE id=?", (t_in.isoformat(), t_out.isoformat() if t_out else None, y, m, d,
-                                         request.form.get("note"), aid))
+                actual, meron = a["actual_in"], a["meron"]
+                if t_in != db.parse(a["clock_in"]).replace(second=0, microsecond=0):    # the clock-in was changed
+                    rec, meron = meron_rule(c, a["employee_id"], t_in)
+                    actual = t_in.isoformat() if rec != t_in else None
+                    t_in = rec
+                c.execute("UPDATE attendance SET clock_in=?, clock_out=?, actual_in=?, meron=?, heb_year=?, heb_month=?, "
+                          "heb_day=?, note=?, exit_confirmed=1 WHERE id=?",
+                          (t_in.isoformat(), t_out.isoformat() if t_out else None, actual, meron, y, m, d,
+                           request.form.get("note"), aid))
             hy, hm = page_month(db.parse(a["clock_in"]))
             return redirect(url_for("admin.employee_month", eid=a["employee_id"], hy=hy, hm=hm))
     local = lambda ts: db.parse(ts).strftime("%Y-%m-%dT%H:%M") if ts else ""
@@ -501,7 +508,7 @@ def recording(mid):
 
 # ---- attendance corrections (extension 5) --------------------------------
 
-from corrections import apply_correction  # noqa: E402  (shared with the phone)
+from corrections import apply_correction, meron_rule  # noqa: E402  (shared with the phone)
 
 
 @bp.route("/corrections", methods=["GET", "POST"])
