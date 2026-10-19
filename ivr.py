@@ -74,12 +74,17 @@ class Reply:
         return ".".join(p for p in self.say_parts if p)
 
     def ask(self, step, prompt, digits=1, allowed=None, min_digits=1, timeout=7, **ctx):
-        """Ask for keypad input; the answer comes back to `step`. digits=None: until #."""
+        """Ask for keypad input; the answer comes back to `step`. digits=None: until #.
+        Everywhere after sign-in: 0 in a one-key menu (when 0 has no other meaning there) and * in a typed
+        entry go back to the main menu."""
         if prompt:
             self.say(prompt)
         name = self._next_name()
+        keys = list(allowed) if allowed else None
+        if keys and step not in NO_GLOBAL_BACK and "0" not in keys:
+            keys.append("0")
         fields = [name, "no", str(digits or ""), str(min_digits), str(timeout), "No", "no", "no", "",
-                  ".".join(allowed) if allowed else "", "1", "Ok", "None", ""]
+                  ".".join(keys) if keys else "", "1", "Ok", "None", ""]
         self.action = f"read={self._messages()}={','.join(fields)}"
         self.s["data"]["await"] = {"name": name, "step": step, "ctx": ctx,
                                    "again": {"prompt": prompt, "digits": digits, "allowed": allowed,
@@ -120,6 +125,20 @@ class Reply:
             out.append("id_list_message=" + self._messages())
         out.append(self.action or "go_to_folder=hangup")
         return "&".join(out)
+
+
+NO_GLOBAL_BACK = {"main_choice", "login_phone", "login_pin", "prev_exit_answer", "fix_time", "uman_answer",
+                  "waiting_choice", "recorded"}
+
+
+def global_back(step, answer, again):
+    """True when the caller asked to go back to the main menu (see Reply.ask)."""
+    if step in NO_GLOBAL_BACK or answer is None:
+        return False
+    a = answer.replace("Digits-", "").strip()
+    if a and set(a) <= {"*", "#"} and "*" in a:
+        return True
+    return bool(again) and again.get("digits") == 1 and a == "0" and "0" not in (again.get("allowed") or [])
 
 
 def respond(body):
@@ -169,7 +188,10 @@ def ivr():
         else:
             s["data"]["retries"] = 0
             s["data"]["await"] = None
-            STEPS[waiting["step"]](r, answer, **waiting["ctx"])
+            if global_back(waiting["step"], answer, waiting.get("again")) and r.s.get("employee_id"):
+                main_menu(r)
+            else:
+                STEPS[waiting["step"]](r, answer, **waiting["ctx"])
     if not r.action or not r.action.startswith("read="):
         s["data"]["await"] = None
     db.save_session(call_id, employee_id=s["employee_id"], **s["data"])
@@ -1363,7 +1385,7 @@ def send_choice(r, answer):
             return send_menu(r)
         return record_message(r, targets[answer])
     if answer == "7":
-        return ask_several(r, [])
+        return r.ask("several_how", r.t("several_how"), allowed=["1", "2"], ids=[])
     pick_avrech(r, "message")
 
 
@@ -1374,6 +1396,13 @@ def find_by_any_number(digits, people):
         ids = [e for e in people if e["id_number"] and re.sub(r"\D", "", e["id_number"]).lstrip("0") == digits.lstrip("0")]
         one = ids[0] if len(ids) == 1 else None
     return one
+
+
+@step
+def several_how(r, answer, ids):
+    if answer == "2":
+        return r.ask_voice("several_voice", r.t("say_name_only"), ids=ids)
+    ask_several(r, ids)
 
 
 def ask_several(r, ids):
@@ -1387,8 +1416,6 @@ def send_several(r, answer, ids=None):
     me = employee(r)
     if not is_manager(me):
         return main_menu(r)
-    if (answer or "").strip("#* ") == "0":
-        return r.ask_voice("several_voice", r.t("say_name_only"), ids=ids)
     numbers = [x for x in re.split(r"[^0-9]+", answer or "") if x and x.strip("0")]
     people = manager_scope(me)
     for n in dict.fromkeys(numbers):
@@ -1410,7 +1437,7 @@ def _several_add(r, ids, e):
 def several_menu(r, ids):
     if not ids:
         return ask_several(r, [])
-    r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2", "0"], ids=ids)
+    r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2", "3", "9", "0"], ids=ids)
 
 
 @step
@@ -1448,8 +1475,12 @@ def several_pick(r, answer, ids, options):
 def send_several_ok(r, answer, ids):
     if answer == "2":
         return ask_several(r, ids)
+    if answer == "3":
+        return r.ask_voice("several_voice", r.t("say_name_only"), ids=ids)
+    if answer == "9":
+        return r.ask("several_how", r.t("several_how"), allowed=["1", "2"], ids=[])
     if answer == "0":
-        return ask_several(r, [])
+        return main_menu(r)
     with db.connect() as c:
         names = [c.execute("SELECT name FROM employees WHERE id=?", (x,)).fetchone()[0] for x in ids]
     r.say(r.t("several_chosen", n=len(ids), names=", ".join(names)))

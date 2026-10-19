@@ -534,12 +534,12 @@ def test_manager_tools_sent_groups_and_voice():
     assert "t-יעקב לוי.t-לאישור" in t
     assert ",record," in c.press("1")
     # several avrechim at once: 300*303*999#
-    c = menu_call("0501111111"); c.press("4"); c.press("2"); c.press("7")
+    c = menu_call("0501111111"); c.press("4"); c.press("2"); c.press("7"); c.press("1")
     t = c.press("300")
     assert "נוסף משה כהן" in t and "לסיום והקלטת ההודעה הקישו 1" in t
     c.press("2"); t = c.press("999")
     assert "9 9 9 לא נמצא" in t
-    c.press("2"); assert "אמרו את שם האברך" in c.press("0")
+    assert "אמרו את שם האברך" in c.press("3")
     t = c.press("משה")                                                  # two Moshes: choose
     assert "למשה לוינשטיין הקישו" in t
     k = "1" if "למשה לוינשטיין הקישו 1" in t else "2"
@@ -547,9 +547,17 @@ def test_manager_tools_sent_groups_and_voice():
     assert "נוסף משה לוינשטיין" in t
     t = c.press("1")
     assert "נבחרו 2 אברכים" in t and ",record," in t
-    c2 = menu_call("0501111111"); c2.press("4"); c2.press("2"); c2.press("7")
+    c2 = menu_call("0501111111"); c2.press("4"); c2.press("2"); c2.press("7"); c2.press("1")
     t2 = c2.press("300*303")                                          # several at once, with stars
     assert "נוסף משה כהן" in t2 and "נבחרו עד עכשיו 2" in t2
+    assert "לעדכון כניסה" in c2.press("0")                           # 0 = main menu
+    # global back: 0 in a one-key menu, * in a typed entry
+    c3 = menu_call("0502222222"); c3.press("9")
+    assert "לעדכון כניסה" in c3.press("0")
+    c3.press("4"); c3.press("2"); c3.press("7"); c3.press("1")
+    assert "לעדכון כניסה" in c3.press("*")
+    c3.press("6")
+    assert "לעדכון כניסה" in c3.press("0")
     SENT.clear(); c.press("/8/sev.wav")
     with db.connect() as conn:
         m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
