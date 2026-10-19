@@ -21,6 +21,7 @@ import db
 import hebcal
 import nbs
 import schedule
+import corrections
 import tefila
 import trips
 from prompts import GROUPS, GROUPS_SHORT, LANGUAGES, WEEKDAYS, say_time, text
@@ -448,7 +449,7 @@ def tefila_status(r):
                             (tefila.CAMPAIGN["id"], today)).fetchone()[0]
     tot = tefila.totals()
     r.say(r.t("tefila_status", today=n_today, entries=sum(x["entries"] for x in tot), people=len(tot)))
-    r.ask("tefila_status_choice", r.t("tefila_status_menu"), allowed=["1", "2", "3", "4", "0"])
+    r.ask("tefila_status_choice", r.t("tefila_status_menu"), allowed=["1", "2", "3", "4", "5", "0"])
 
 
 @step
@@ -459,11 +460,44 @@ def tefila_status_choice(r, answer):
         names = [x["name"] for x in tefila.entries_of_day(db.now().date().isoformat())]
         r.say(r.t("tefila_today_names", names=", ".join(names)) if names else r.t("tefila_today_none"))
         return tefila_status(r)
+    if answer == "5":
+        return r.ask("tefila_add_when", r.t("tefila_add_when"), allowed=["1", "2"])
     if answer == "3":
         return send_to(r, {"type": "tefila_today"})
     if answer == "4":
         return send_to(r, {"type": "tefila_all"})
     main_menu(r)
+
+
+@step
+def tefila_add_when(r, answer):
+    day = db.now().date() - timedelta(days=0 if answer == "1" else 1)
+    r.ask("tefila_add", r.t("enter_several"), digits=None, timeout=15, day=day.isoformat())
+
+
+@step
+def tefila_add(r, answer, day):
+    me = employee(r)
+    if not is_manager(me):
+        return main_menu(r)
+    people = [e for e in manager_scope(me) if schedule.in_night(e)]
+    d = datetime.fromisoformat(day).date()
+    for n in dict.fromkeys(x for x in re.split(r"[^0-9]+", answer or "") if x and x.strip("0")):
+        e = find_by_any_number(n, people)
+        if e is None:
+            r.say(r.t("several_missing", numbers=say_digits(n)))
+        elif tefila.add_manual(e["id"], d, me["id"]):
+            r.say(r.t("tefila_added", name=e["name"]))
+        else:
+            r.say(r.t("tefila_already_there", name=e["name"]))
+    r.ask("tefila_add_more", r.t("tefila_add_more"), allowed=["1", "2"], day=day)
+
+
+@step
+def tefila_add_more(r, answer, day):
+    if answer == "1":
+        return r.ask("tefila_add", r.t("enter_several"), digits=None, timeout=15, day=day)
+    tefila_status(r)
 
 
 def tefila_status_of(r, emp):
@@ -711,7 +745,60 @@ def driver_clock_in(r):
 # ---- 5: attendance correction ------------------------------------------
 
 def fix_start(r):
+    me = employee(r)
+    if is_manager(me):
+        pending = pending_corrections(me)
+        if pending:
+            return r.ask("fix_manager_choice", r.t("fix_manager_menu", n=len(pending)), allowed=["1", "2"])
     r.ask("fix_kind", r.t("fix_kind"), allowed=["1", "2"])
+
+
+def pending_corrections(me):
+    scope = {e["id"] for e in manager_scope(me)}
+    with db.connect() as c:
+        rows = c.execute("SELECT * FROM corrections WHERE status='pending' ORDER BY created_at").fetchall()
+    return [x["id"] for x in rows if x["employee_id"] in scope]
+
+
+@step
+def fix_manager_choice(r, answer):
+    if answer == "2":
+        return review_correction(r, pending_corrections(employee(r)), 0)
+    r.ask("fix_kind", r.t("fix_kind"), allowed=["1", "2"])
+
+
+CORRECTION_RESULTS = {"clock-in changed": "corr_in_changed", "clock-out set": "corr_out_set",
+                      "night added (exit counts as 7:30 unless corrected)": "corr_added",
+                      "clock-in would be after that day's clock-out": "corr_err_after_out",
+                      "no clock-in that day before this time - approve a clock-in correction first": "corr_err_no_in"}
+
+
+def review_correction(r, ids, i):
+    if i >= len(ids):
+        r.say(r.t("corr_none_left"))
+        return main_menu(r)
+    with db.connect() as c:
+        k = c.execute("SELECT k.*, e.name FROM corrections k JOIN employees e ON e.id=k.employee_id WHERE k.id=?",
+                      (ids[i],)).fetchone()
+    if k is None or k["status"] != "pending":
+        return review_correction(r, ids, i + 1)
+    r.say(r.t("corr_item", n=i + 1, total=len(ids), name=k["name"],
+              kind=r.t("fix_kind_in" if k["kind"] == "in" else "fix_kind_out"),
+              when=say_when(r, db.parse(k["requested_time"]))))
+    r.ask("review_choice", r.t("corr_menu"), allowed=["1", "2", "3", "0"], ids=ids, i=i)
+
+
+@step
+def review_choice(r, answer, ids, i):
+    me = employee(r)
+    if not is_manager(me) or answer == "0":
+        return main_menu(r)
+    if answer in ("1", "2") and ids[i] in pending_corrections(me):
+        res = corrections.decide(ids[i], approve=answer == "1")
+        if res:
+            ok, msg = res
+            r.say(r.t("corr_rejected") if answer == "2" else r.t(CORRECTION_RESULTS.get(msg, "corr_in_changed")))
+    review_correction(r, ids, i + 1)
 
 
 def fix_program(emp, t):

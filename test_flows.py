@@ -695,6 +695,40 @@ def test_manager_registers_new_avrech_by_phone():
     assert ivr.find_by_number("15", people)["emp_number"] == "015" and ivr.find_by_number("115", people)["emp_number"] == "115"
 
 
+def test_manager_approves_corrections_and_adds_tefila_by_phone():
+    import tefila
+    seed()
+    at(2026, 11, 17, 2, 50)
+    c = menu_call("0503333331"); c.press("5"); c.press("1"); c.press("2"); c.press("0225")   # 300 asks: clock-in 2:25 yesterday
+    m = menu_call("0502222222")
+    t = m.press("5")
+    assert "יש 1 בקשות ממתינות" in t
+    t = m.press("2")
+    assert "Worker A1 ביקש לתקן את שעת הכניסה" in t
+    t = m.press("1")
+    assert "אושר" in t and "אין בקשות נוספות" in t
+    a = attendance("300")
+    assert len(a) == 1 and db.parse(a[0]["clock_in"]).strftime("%d %H:%M") == "16 02:25"
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM corrections").fetchone()[0] == "approved"
+    # tefila: the manager adds two avrechim to today's raffle
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("2026-10-19,06:22:20\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 19, 9, 0)
+    m = menu_call("0502222222"); m.press("8")
+    m.press("5"); m.press("1")
+    t = m.press("300*303*999")
+    assert "Worker A1 נוסף להגרלה" in t and "No Shuttle נוסף להגרלה" in t and "9 9 9 לא נמצא" in t
+    assert sorted(x["entries"] for x in tefila.totals()) == [1, 1]
+    rows = tefila.entries_of_day("2026-10-19")
+    assert all(x["added_by"] == emp("200")["id"] for x in rows)
+    # admin page: add by hand for yesterday
+    client.post("/admin/tefila", headers=AUTH, data={"action": "add", "day": "2026-10-18", "employee_id": [str(emp("301")["id"])]})
+    assert len(tefila.entries_of_day("2026-10-18")) == 1
+    assert "added by hand" in client.get("/admin/tefila?day=2026-10-18", headers=AUTH).data.decode()
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():

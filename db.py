@@ -156,6 +156,7 @@ MIGRATIONS = {
                   ("phone2", "TEXT"), ("phone2_mode", "TEXT NOT NULL DEFAULT 'none'"),
                   ("phone2_calls", "INTEGER NOT NULL DEFAULT 1")],
     "message_recipients": [("announced_at", "TEXT")],
+    "tefila_entries": [("added_by", "INTEGER")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),
                    ("meron", "INTEGER NOT NULL DEFAULT 0"), ("actual_in", "TEXT"),
                    ("program", "TEXT NOT NULL DEFAULT 'night'")],

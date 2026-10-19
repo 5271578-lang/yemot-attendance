@@ -501,33 +501,7 @@ def recording(mid):
 
 # ---- attendance corrections (extension 5) --------------------------------
 
-def apply_correction(c, corr):
-    """Returns (ok, explanation)."""
-    t = db.parse(corr["requested_time"])
-    day_start = t.replace(hour=0, minute=0, second=0)
-    day_end = day_start + timedelta(days=1)
-    program = program_of(t)
-    rows = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? AND clock_in>=? AND clock_in<? "
-                     "ORDER BY clock_in", (corr["employee_id"], program, day_start.isoformat(), day_end.isoformat())).fetchall()
-    if corr["kind"] == "in":
-        if rows:
-            row = rows[0]
-            if row["clock_out"] and db.parse(row["clock_out"]) <= t:
-                return False, "clock-in would be after that day's clock-out"
-            c.execute("UPDATE attendance SET clock_in=?, note='corrected by phone request' WHERE id=?",
-                      (t.isoformat(), row["id"]))
-            return True, "clock-in changed"
-        y, m, d = heb_fields(t)
-        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, note, program) "
-                  "VALUES (?,?,?,?,?,'added by phone request',?)", (corr["employee_id"], t.isoformat(), y, m, d, program))
-        return True, "night added (exit counts as 7:30 unless corrected)"
-    candidates = [x for x in rows if db.parse(x["clock_in"]) < t]
-    if not candidates:
-        return False, "no clock-in that day before this time - approve a clock-in correction first"
-    row = candidates[-1]
-    c.execute("UPDATE attendance SET clock_out=?, exit_confirmed=1, note='corrected by phone request' WHERE id=?",
-              (t.isoformat(), row["id"]))
-    return True, "clock-out set"
+from corrections import apply_correction  # noqa: E402  (shared with the phone)
 
 
 @bp.route("/corrections", methods=["GET", "POST"])
@@ -655,6 +629,12 @@ def tefila_page():
     winners = None
     if request.method == "POST" and request.form.get("action") == "draw":
         winners = tefila.draw()
+    elif request.method == "POST" and request.form.get("action") == "add":
+        day = request.form.get("day") or db.now().date().isoformat()
+        added = 0
+        for eid in request.form.getlist("employee_id"):
+            added += tefila.add_manual(int(eid), datetime.fromisoformat(day).date(), -1)   # -1 = admin page
+        return redirect(url_for("admin.tefila_page", day=day, msg=f"Added {added}"))
     elif request.method == "POST" and request.form.get("action") == "remove":
         with db.connect() as c:
             c.execute("DELETE FROM tefila_entries WHERE campaign=? AND employee_id=? AND day=?",
@@ -680,15 +660,23 @@ Today: {% if w %}netz {{ netz.strftime('%H:%M:%S') }} · open {{ w[0].strftime('
 <form method="post" onsubmit="return confirm('Draw the winners now? Every draw is saved.')" style="margin-top:10px">
 <button name="action" value="draw" style="background:#2e7d32">Draw the winners</button>
 <span class="muted"> {{ camp.prizes|length }} prizes, weighted by entries, each avrech wins once.</span></form></div>
+<div class="box"><b>Add avrechim by hand</b> <span class="muted">(for those who did not manage to register)</span>
+<form method="post"><input type="hidden" name="action" value="add">
+Day <input type="date" name="day" value="{{ day }}"> <select name="employee_id" multiple size="6" style="min-width:260px">
+{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
+<button>Add</button> <span class="muted">Ctrl+click to choose several.</span></form>
+{% if request.args.get('msg') %}<p class="warn">{{ request.args.get('msg') }}</p>{% endif %}</div>
 <div class="box"><b>By day</b>: {% for x in days %}<a href="?day={{ x.day }}">{{ x.day }}</a> ({{ x.n }}){{ ' · ' if not loop.last }}{% endfor %}
 <p><b>{{ day }}</b></p><table><tr><th>Name</th><th>Registered at</th><th></th></tr>
-{% for x in list %}<tr><td>{{ x.name }}</td><td>{{ fmt(x.created_at) }}</td><td><form method="post" onsubmit="return confirm('Remove this entry?')">
+{% for x in list %}<tr><td>{{ x.name }}</td><td>{{ fmt(x.created_at) }}{% if x.added_by is not none %} <span class="muted">· added by hand</span>{% endif %}</td><td><form method="post" onsubmit="return confirm('Remove this entry?')">
 <input type="hidden" name="action" value="remove"><input type="hidden" name="employee_id" value="{{ x.employee_id }}">
 <input type="hidden" name="day" value="{{ x.day }}"><button>Remove</button></form></td></tr>
 {% else %}<tr><td colspan="3" class="muted">Nobody.</td></tr>{% endfor %}</table></div>
 {% if draws %}<div class="box"><b>Previous draws</b>{% for d in draws %}<p>{{ fmt(d.created_at) }} · {{ d.tickets }} entries:
 {% for x in d.winners %}<span dir="rtl">{{ x.prize }}: <b>{{ x.name }}</b></span>{{ ' · ' if not loop.last }}{% endfor %}</p>{% endfor %}</div>{% endif %}"""
-    return page(body, camp=camp, w=w, netz=tefila.netz(today), missing=missing, winners=winners,
+    with db.connect() as c:
+        avrechim = c.execute("SELECT id, name, emp_number FROM employees WHERE active=1 AND in_night=1 ORDER BY name").fetchall()
+    return page(body, camp=camp, w=w, netz=tefila.netz(today), missing=missing, winners=winners, avrechim=avrechim, request=request,
                 totals=tefila.totals(), days=tefila.by_day(), day=day, list=tefila.entries_of_day(day),
                 draws=tefila.draws(), fmt=fmt)
 

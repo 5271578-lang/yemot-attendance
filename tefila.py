@@ -92,6 +92,14 @@ def register(emp_id, now=None):
     return bool(new), total
 
 
+def add_manual(emp_id, day, by_id, now=None):
+    """A manager adds an avrech's entry for a day (he did not manage to register). Returns True if new."""
+    now = now or db.now()
+    with db.connect() as c:
+        return bool(c.execute("INSERT OR IGNORE INTO tefila_entries(campaign, employee_id, day, created_at, added_by) "
+                              "VALUES (?,?,?,?,?)", (CAMPAIGN["id"], emp_id, day.isoformat(), now.isoformat(), by_id)).rowcount)
+
+
 def totals():
     """[(row with name etc., entries)] most entries first."""
     with db.connect() as c:
