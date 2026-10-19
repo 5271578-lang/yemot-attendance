@@ -711,6 +711,15 @@ def test_manager_approves_corrections_and_adds_tefila_by_phone():
     assert len(a) == 1 and db.parse(a[0]["clock_in"]).strftime("%d %H:%M") == "16 02:25"
     with db.connect() as conn:
         assert conn.execute("SELECT status FROM corrections").fetchone()[0] == "approved"
+    # a rider asks for 1:00 -> recorded 2:25 with Meron
+    at(2026, 11, 18, 3, 10)
+    c = menu_call("0503333332"); c.press("5"); c.press("1"); c.press("1"); c.press("0100")   # 301 (group 2), tonight
+    m = menu_call("0502222222"); m.press("5"); m.press("2")
+    t = m.press("1")
+    assert "עם נסיעה למירון" in t
+    a = attendance("301")
+    assert db.parse(a[-1]["clock_in"]).strftime("%H:%M") == "02:25" and a[-1]["meron"] == 1
+    assert db.parse(a[-1]["actual_in"]).strftime("%H:%M") == "01:00"
     # tefila: the manager adds two avrechim to today's raffle
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("2026-10-19,06:22:20\n")

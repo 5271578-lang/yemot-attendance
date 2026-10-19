@@ -797,7 +797,9 @@ def review_choice(r, answer, ids, i):
         res = corrections.decide(ids[i], approve=answer == "1")
         if res:
             ok, msg = res
-            r.say(r.t("corr_rejected") if answer == "2" else r.t(CORRECTION_RESULTS.get(msg, "corr_in_changed")))
+            r.say(r.t("corr_rejected") if answer == "2" else r.t(CORRECTION_RESULTS.get(msg.replace(" (Meron)", ""), "corr_in_changed")))
+            if answer == "1" and ok and msg.endswith("(Meron)"):
+                r.say(r.t("corr_meron"))
     review_correction(r, ids, i + 1)
 
 
