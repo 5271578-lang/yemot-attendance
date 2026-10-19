@@ -661,7 +661,7 @@ def test_manager_registers_new_avrech_by_phone():
     # edit by phone: wrong phone -> fix it
     m = menu_call("0502222222"); m.press("9")
     assert "לעריכת פרטי אברך הקישו 7" in m.last if hasattr(m, "last") else True
-    m.press("7"); t = m.press("Digits-001")
+    m.press("7"); t = m.press("Digits-123456782")                     # by ID number
     assert "שמואל גולדברג" in t
     t = m.press("1")
     assert "לשינוי הטלפון הקישו 1" in t

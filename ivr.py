@@ -1460,7 +1460,10 @@ def picked_avrech(r, answer, purpose, tries):
     ans = (answer or "").strip()
     digits = ans[len("Digits-"):] if ans.startswith("Digits-") else (ans if ans.isdigit() else None)
     if digits:
-        one = find_by_number(digits, scope)
+        one = find_by_number(digits, scope) if len(digits) < 7 else None
+        if one is None and len(digits) >= 5:                    # ID number (teudat zehut)
+            ids = [e for e in scope if e["id_number"] and re.sub(r"\D", "", e["id_number"]).lstrip("0") == digits.lstrip("0")]
+            one = ids[0] if len(ids) == 1 else None
         found = [one] if one else []
     else:
         found = match_names(ans, scope)
