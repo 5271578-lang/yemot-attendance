@@ -541,6 +541,10 @@ def test_manager_tools_sent_groups_and_voice():
     assert "9 9 9 לא נמצא" in t
     c.press("1"); c.press("303")
     t = c.press("2")
+    assert "נבחרו 2 אברכים" in t
+    c2 = menu_call("0501111111"); c2.press("4"); c2.press("2"); c2.press("7")
+    t2 = c2.press("300*303")                                          # several at once, with stars
+    assert "נוסף משה כהן" in t2 and "נבחרו עד עכשיו 2" in t2
     assert "נבחרו 2 אברכים" in t and ",record," in t
     SENT.clear(); c.press("/8/sev.wav")
     with db.connect() as conn:

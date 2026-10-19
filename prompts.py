@@ -132,7 +132,7 @@ HE = {
     "sent_header": "הודעה ששלחת, {n} מתוך {total_msgs}, אל {label}, {when}. שמעו אותה {heard} מתוך {total}",
     "send_menu": "לכולל חצות הקישו 1. לכולל הוראה הקישו 2. לכולל חצות, מי שלא רשום בהסעות, הקישו 3. "
                  "לקבוצת מאור חיים הקישו 4. לקבוצת דרום הקישו 5. לאברך מסוים הקישו 6. לכמה אברכים הקישו 7. למי שנוכח כרגע הקישו 8. לחזרה לתפריט הראשי הקישו 0",
-    "enter_several": "הקישו את מספר העובד, ובסיום סולמית",
+    "enter_several": "הקישו את מספרי העובד, וכוכבית בין מספר למספר. בסיום הקישו סולמית",
     "several_added": "נוסף {name}. נבחרו עד עכשיו {n}",
     "several_missing": "המספר {numbers} לא נמצא",
     "several_chosen": "נבחרו {n} אברכים: {names}",
@@ -299,7 +299,7 @@ EN = {
     "sent_header": "A message you sent, {n} of {total_msgs}, to {label}, {when}. Heard by {heard} of {total}",
     "send_menu": "For Kollel Chatzos, press 1. For Kollel Horaah, press 2. For Kollel Chatzos without the shuttles, press 3. "
                  "For the Maor Chaim group, press 4. For the Darom group, press 5. For one avrech, press 6. For several avrechim, press 7. For who is here now, press 8. To return to the main menu, press 0",
-    "enter_several": "Enter the employee number, then press pound",
+    "enter_several": "Enter the employee numbers with a star between them, then press pound",
     "several_added": "{name} was added. {n} chosen so far",
     "several_missing": "Number {numbers} was not found",
     "several_chosen": "{n} avrechim were chosen: {names}",
