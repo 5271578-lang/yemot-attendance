@@ -884,8 +884,8 @@ def settings_menu(r):
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     if is_manager(emp):
-        txt = r.t("settings_new_avrech") + ". " + txt
-        keys.append("6")
+        txt = r.t("settings_new_avrech") + ". " + r.t("settings_edit_avrech") + ". " + txt
+        keys += ["6", "7"]
     r.ask("settings_choice", txt, allowed=keys)
 
 
@@ -900,6 +900,8 @@ def settings_choice(r, answer):
         return phone2_menu(r)
     if answer == "6" and is_manager(employee(r)):
         return r.ask("new_avrech_phone", r.t("new_avrech_phone"), digits=None, timeout=15)
+    if answer == "7" and is_manager(employee(r)):
+        return pick_avrech(r, "edit")
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
@@ -1023,6 +1025,124 @@ def new_avrech_name_ok(r, answer, new, name):
                    1 if new["in_night"] else 0, 1 if new["in_day"] else 0, "he", db.now().date().isoformat()))
     r.say(r.t("new_avrech_saved", name=name, number=say_digits(number)))
     main_menu(r)
+
+
+# -- 9 -> 7: a manager edits an avrech's details
+
+def _target(r, eid):
+    me = employee(r)
+    if not is_manager(me):
+        return None
+    with db.connect() as c:
+        t = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
+    return t if t and t["id"] in {e["id"] for e in manager_scope(me)} else None
+
+
+def edit_menu(r, eid):
+    t = _target(r, eid)
+    if t is None:
+        return main_menu(r)
+    kollel = r.t("edit_kollel_both" if t["in_night"] and t["in_day"] else
+                 "edit_kollel_day" if t["in_day"] else "edit_kollel_night")
+    r.say(r.t("edit_details", name=t["name"], phone=say_digits(t["phone"] or ""), number=say_digits(t["emp_number"]),
+              kollel=kollel))
+    r.ask("edit_choice", r.t("edit_menu"), allowed=["1", "2", "3", "4", "5", "6", "0"], eid=eid)
+
+
+@step
+def edit_choice(r, answer, eid):
+    t = _target(r, eid)
+    if t is None or answer == "0":
+        return main_menu(r)
+    if answer == "1":
+        return r.ask("edit_phone", r.t("edit_enter_phone"), digits=None, timeout=15, eid=eid)
+    if answer == "2":
+        return r.ask("edit_id", r.t("edit_enter_id"), digits=None, timeout=15, eid=eid)
+    if answer == "3":
+        return r.ask("edit_kollel", r.t("new_avrech_kollel"), allowed=["1", "2", "3"], eid=eid)
+    if answer == "4":
+        return r.ask("edit_group", r.t("new_avrech_group", g1=GROUPS_SHORT[r.lang][1], g2=GROUPS_SHORT[r.lang][2]),
+                     allowed=["1", "2", "0"], eid=eid)
+    if answer == "5":
+        return r.ask_voice("edit_name", r.t("new_avrech_name"), eid=eid)
+    with db.connect() as c:
+        c.execute("UPDATE employees SET pin='1480' WHERE id=?", (eid,))
+    r.say(r.t("edit_pin_reset"))
+    edit_menu(r, eid)
+
+
+def _edit_saved(r, eid, field, value):
+    with db.connect() as c:
+        c.execute(f"UPDATE employees SET {field}=? WHERE id=?", (value, eid))
+    r.say(r.t("edit_saved"))
+    edit_menu(r, eid)
+
+
+@step
+def edit_phone(r, answer, eid):
+    if _target(r, eid) is None:
+        return main_menu(r)
+    digits = re.sub(r"\D", "", answer or "")
+    if not (9 <= len(digits) <= 10 and digits.startswith("0")):
+        r.say(r.t("phone2_bad"))
+        return edit_menu(r, eid)
+    owner = _phone_owner(digits)
+    if owner and owner["id"] != eid:
+        r.say(r.t("new_avrech_phone_taken", name=owner["name"]))
+        return edit_menu(r, eid)
+    _edit_saved(r, eid, "phone", digits)
+
+
+@step
+def edit_id(r, answer, eid):
+    if _target(r, eid) is None:
+        return main_menu(r)
+    ident = re.sub(r"\D", "", answer or "")
+    if ident.strip("0") == "":
+        return _edit_saved(r, eid, "id_number", None)
+    with db.connect() as c:
+        same = [e for e in c.execute("SELECT id, name, id_number FROM employees WHERE id_number IS NOT NULL AND id<>?", (eid,))
+                if re.sub(r"\D", "", e["id_number"]).lstrip("0") == ident.lstrip("0")]
+    if same:
+        r.say(r.t("new_avrech_id_taken", name=same[0]["name"]))
+        return edit_menu(r, eid)
+    _edit_saved(r, eid, "id_number", ident)
+
+
+@step
+def edit_kollel(r, answer, eid):
+    if _target(r, eid) is None:
+        return main_menu(r)
+    with db.connect() as c:
+        c.execute("UPDATE employees SET in_night=?, in_day=? WHERE id=?",
+                  (1 if answer in ("1", "3") else 0, 1 if answer in ("2", "3") else 0, eid))
+    r.say(r.t("edit_saved"))
+    edit_menu(r, eid)
+
+
+@step
+def edit_group(r, answer, eid):
+    if _target(r, eid) is None:
+        return main_menu(r)
+    _edit_saved(r, eid, "shuttle_group", int(answer) if answer in ("1", "2") else None)
+
+
+@step
+def edit_name(r, answer, eid):
+    name = (answer or "").strip()
+    if not name or name.startswith("Digits") or any(ch.isdigit() for ch in name):
+        r.say(r.t("new_avrech_name_missed"))
+        return edit_menu(r, eid)
+    r.ask("edit_name_ok", r.t("edit_name_heard", name=name), allowed=["1", "2"], eid=eid, name=name)
+
+
+@step
+def edit_name_ok(r, answer, eid, name):
+    if _target(r, eid) is None:
+        return main_menu(r)
+    if answer != "1":
+        return r.ask_voice("edit_name", r.t("new_avrech_name"), eid=eid)
+    _edit_saved(r, eid, "name", name)
 
 
 # -- 9 -> 5: additional phone
@@ -1378,6 +1498,8 @@ def avrech_choice(r, answer, purpose, ids):
         return status_of(r, target, name=True)
     if purpose == "tefila":
         return tefila_status_of(r, target)
+    if purpose == "edit":
+        return edit_menu(r, target["id"])
     r.say(r.t("target_is", name=target["name"]))
     record_message(r, {"type": "employee", "employee_id": target["id"]})
 

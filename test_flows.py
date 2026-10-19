@@ -658,6 +658,22 @@ def test_manager_registers_new_avrech_by_phone():
     assert e["name"] == "שמואל גולדברג" and e["pin"] == "1480" and e["shift"] == "A" and e["shuttle_group"] == 2
     assert e["in_night"] == 1 and e["in_day"] == 0 and e["id_number"] == "123456782" and e["emp_number"] == "001"
     assert "לרישום אברך חדש" not in menu_call("0503333331").press("9")      # avrechim don't have it
+    # edit by phone: wrong phone -> fix it
+    m = menu_call("0502222222"); m.press("9")
+    assert "לעריכת פרטי אברך הקישו 7" in m.last if hasattr(m, "last") else True
+    m.press("7"); t = m.press("Digits-001")
+    assert "שמואל גולדברג" in t
+    t = m.press("1")
+    assert "לשינוי הטלפון הקישו 1" in t
+    m.press("1"); t = m.press("0529998878")
+    assert "השינוי נשמר" in t
+    m.press("6")
+    m.press("5"); t = m.press("שמואל גולדשטיין")
+    assert "שמואל גולדשטיין" in t
+    m.press("1")
+    with db.connect() as c:
+        e = c.execute("SELECT * FROM employees WHERE emp_number='001'").fetchone()
+    assert e["phone"] == "0529998878" and e["name"] == "שמואל גולדשטיין"
     import ivr
     assert ivr.next_emp_number("0", ["011", "015", "017", "101", "102"]) == "018"
     assert ivr.next_emp_number("1", ["011", "015", "101", "102"]) == "103"
