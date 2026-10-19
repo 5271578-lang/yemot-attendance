@@ -536,16 +536,20 @@ def test_manager_tools_sent_groups_and_voice():
     # several avrechim at once: 300*303*999#
     c = menu_call("0501111111"); c.press("4"); c.press("2"); c.press("7")
     t = c.press("300")
-    assert "נוסף משה כהן" in t and "להוספת אברך נוסף הקישו 1" in t
-    c.press("1"); t = c.press("999")
+    assert "נוסף משה כהן" in t and "לסיום והקלטת ההודעה הקישו 1" in t
+    c.press("2"); t = c.press("999")
     assert "9 9 9 לא נמצא" in t
-    c.press("1"); c.press("303")
-    t = c.press("2")
-    assert "נבחרו 2 אברכים" in t
+    c.press("2"); assert "אמרו את שם האברך" in c.press("0")
+    t = c.press("משה")                                                  # two Moshes: choose
+    assert "למשה לוינשטיין הקישו" in t
+    k = "1" if "למשה לוינשטיין הקישו 1" in t else "2"
+    t = c.press(k)
+    assert "נוסף משה לוינשטיין" in t
+    t = c.press("1")
+    assert "נבחרו 2 אברכים" in t and ",record," in t
     c2 = menu_call("0501111111"); c2.press("4"); c2.press("2"); c2.press("7")
     t2 = c2.press("300*303")                                          # several at once, with stars
     assert "נוסף משה כהן" in t2 and "נבחרו עד עכשיו 2" in t2
-    assert "נבחרו 2 אברכים" in t and ",record," in t
     SENT.clear(); c.press("/8/sev.wav")
     with db.connect() as conn:
         m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()

@@ -1363,37 +1363,93 @@ def send_choice(r, answer):
             return send_menu(r)
         return record_message(r, targets[answer])
     if answer == "7":
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
+        return ask_several(r, [])
     pick_avrech(r, "message")
+
+
+def find_by_any_number(digits, people):
+    """Employee number (short) or ID number (7+ digits)."""
+    one = find_by_number(digits, people) if len(digits) < 7 else None
+    if one is None and len(digits) >= 5:
+        ids = [e for e in people if e["id_number"] and re.sub(r"\D", "", e["id_number"]).lstrip("0") == digits.lstrip("0")]
+        one = ids[0] if len(ids) == 1 else None
+    return one
+
+
+def ask_several(r, ids):
+    r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=ids)
 
 
 @step
 def send_several(r, answer, ids=None):
-    """Several avrechim: one employee number at a time (a star-separated list also works), then record."""
+    """Several avrechim: employee / ID numbers with a star between them; 0 = say a name instead."""
     ids = list(ids or [])
     me = employee(r)
     if not is_manager(me):
         return main_menu(r)
-    numbers = [x for x in re.split(r"[^0-9]+", answer or "") if x]
+    if (answer or "").strip("#* ") == "0":
+        return r.ask_voice("several_voice", r.t("say_name_only"), ids=ids)
+    numbers = [x for x in re.split(r"[^0-9]+", answer or "") if x and x.strip("0")]
     people = manager_scope(me)
     for n in dict.fromkeys(numbers):
-        e = find_by_number(n, people)
+        e = find_by_any_number(n, people)
         if e is None:
             r.say(r.t("several_missing", numbers=say_digits(n)))
-        elif e["id"] not in ids:
-            ids.append(e["id"])
-            r.say(r.t("several_added", name=e["name"], n=len(ids)))
+        else:
+            ids = _several_add(r, ids, e)
+    several_menu(r, ids)
+
+
+def _several_add(r, ids, e):
+    if e["id"] not in ids:
+        ids = ids + [e["id"]]
+        r.say(r.t("several_added", name=e["name"], n=len(ids)))
+    return ids
+
+
+def several_menu(r, ids):
     if not ids:
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
+        return ask_several(r, [])
     r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2", "0"], ids=ids)
 
 
 @step
+def several_voice(r, answer, ids):
+    me = employee(r)
+    if not is_manager(me):
+        return main_menu(r)
+    ans = (answer or "").strip()
+    people = manager_scope(me)
+    if ans.startswith("Digits-") or ans.isdigit():
+        e = find_by_any_number(ans.replace("Digits-", ""), people)
+        found = [e] if e else []
+    else:
+        found = match_names(ans, people)
+    if not found or len(found) > 6:
+        r.say(r.t("avrech_not_found") if not found else r.t("avrech_too_many", n=len(found)))
+        return several_menu(r, ids)
+    if len(found) == 1:
+        return several_menu(r, _several_add(r, ids, found[0]))
+    opts = ". ".join(r.t("avrech_option", name=e["name"], n=k + 1) for k, e in enumerate(found))
+    r.ask("several_pick", opts + ". " + r.t("avrech_again"), allowed=[str(k + 1) for k in range(len(found))] + ["0"],
+          ids=ids, options=[e["id"] for e in found])
+
+
+@step
+def several_pick(r, answer, ids, options):
+    if answer == "0" or not answer.isdigit() or int(answer) > len(options):
+        return r.ask_voice("several_voice", r.t("say_name_only"), ids=ids)
+    me = employee(r)
+    e = next((x for x in manager_scope(me) if x["id"] == options[int(answer) - 1]), None) if is_manager(me) else None
+    several_menu(r, _several_add(r, ids, e) if e else ids)
+
+
+@step
 def send_several_ok(r, answer, ids):
-    if answer == "1":
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=ids)
+    if answer == "2":
+        return ask_several(r, ids)
     if answer == "0":
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
+        return ask_several(r, [])
     with db.connect() as c:
         names = [c.execute("SELECT name FROM employees WHERE id=?", (x,)).fetchone()[0] for x in ids]
     r.say(r.t("several_chosen", n=len(ids), names=", ".join(names)))
@@ -1460,10 +1516,7 @@ def picked_avrech(r, answer, purpose, tries):
     ans = (answer or "").strip()
     digits = ans[len("Digits-"):] if ans.startswith("Digits-") else (ans if ans.isdigit() else None)
     if digits:
-        one = find_by_number(digits, scope) if len(digits) < 7 else None
-        if one is None and len(digits) >= 5:                    # ID number (teudat zehut)
-            ids = [e for e in scope if e["id_number"] and re.sub(r"\D", "", e["id_number"]).lstrip("0") == digits.lstrip("0")]
-            one = ids[0] if len(ids) == 1 else None
+        one = find_by_any_number(digits, scope)
         found = [one] if one else []
     else:
         found = match_names(ans, scope)
