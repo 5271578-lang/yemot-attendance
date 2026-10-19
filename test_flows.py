@@ -647,8 +647,15 @@ def test_manager_registers_new_avrech_by_phone():
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE phone='0529998877'").fetchone()
     assert e["name"] == "שמואל גולדברג" and e["pin"] == "1480" and e["shift"] == "A" and e["shuttle_group"] == 2
-    assert e["in_night"] == 1 and e["in_day"] == 0 and e["id_number"] == "123456782" and e["emp_number"] == "401"
+    assert e["in_night"] == 1 and e["in_day"] == 0 and e["id_number"] == "123456782" and e["emp_number"] == "001"
     assert "לרישום אברך חדש" not in menu_call("0503333331").press("9")      # avrechim don't have it
+    import ivr
+    assert ivr.next_emp_number("0", ["011", "015", "017", "101", "102"]) == "018"
+    assert ivr.next_emp_number("1", ["011", "015", "101", "102"]) == "103"
+    assert ivr.next_emp_number("0", ["098", "099"]) == "0100"
+    assert ivr.next_emp_number("1", []) == "101"
+    people = [{"emp_number": "015"}, {"emp_number": "115"}]
+    assert ivr.find_by_number("15", people)["emp_number"] == "015" and ivr.find_by_number("115", people)["emp_number"] == "115"
 
 
 # ---- messages ------------------------------------------------------------

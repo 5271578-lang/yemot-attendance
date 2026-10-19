@@ -911,6 +911,33 @@ def settings_choice(r, answer):
 
 # -- 9 -> 6: a manager registers a new avrech
 
+def next_emp_number(prefix, existing):
+    """The next free employee number: Kollel Chatzos numbers start with 0, Kollel Horaah numbers with 1.
+    Same length as the existing ones of that kind (a longer number only when that length is full)."""
+    used = {str(x) for x in existing}
+    mine = [x for x in used if x.isdigit() and x.startswith(prefix) and len(x) <= 8]
+    width = max((len(x) for x in mine), default=3)
+    n = max((int(x) for x in mine), default=int(prefix) * 10 ** (width - 1)) + 1
+    while True:
+        cand = str(n).zfill(width)
+        if len(cand) > width or not cand.startswith(prefix):     # this length is full: one digit longer
+            width += 1
+            if prefix != "0":
+                n = int(prefix) * 10 ** (width - 1)
+            continue
+        if cand not in used:
+            return cand
+        n += 1
+
+
+def find_by_number(number, people):
+    """Exact employee number; otherwise the same number without leading zeros (15 -> 015), if only one fits."""
+    exact = [e for e in people if e["emp_number"] == number]
+    if exact:
+        return exact[0]
+    loose = [e for e in people if (e["emp_number"] or "").lstrip("0") == number.lstrip("0") and number.lstrip("0")]
+    return loose[0] if len(loose) == 1 else None
+
 def _phone_owner(phone):
     p = db.normalize_phone(phone or "")
     with db.connect() as c:
@@ -988,8 +1015,7 @@ def new_avrech_name_ok(r, answer, new, name):
     if not is_manager(me) or _phone_owner(new["phone"]):
         return main_menu(r)
     with db.connect() as c:
-        nums = [int(x[0]) for x in c.execute("SELECT emp_number FROM employees") if str(x[0]).isdigit() and len(str(x[0])) <= 6]
-        number = str(max(nums + [0]) + 1)
+        number = next_emp_number("0" if new["in_night"] else "1", [x[0] for x in c.execute("SELECT emp_number FROM employees")])
         shift = me["shift"] if me["role"] == "onsite_manager" and new["in_night"] else None
         c.execute("INSERT INTO employees(emp_number, name, phone, pin, role, shift, shuttle_group, id_number, in_night, in_day, "
                   "language, joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -1228,9 +1254,14 @@ def send_several(r, answer):
     if not is_manager(me):
         return main_menu(r)
     numbers = [x for x in re.split(r"[*#\s]+", answer or "") if x]
-    scope = {e["emp_number"]: e for e in manager_scope(me)}
-    found = [scope[n] for n in dict.fromkeys(numbers) if n in scope]
-    missing = [n for n in dict.fromkeys(numbers) if n not in scope]
+    people = manager_scope(me)
+    found, missing = [], []
+    for n in dict.fromkeys(numbers):
+        e = find_by_number(n, people)
+        if e is None:
+            missing.append(n)
+        elif e not in found:
+            found.append(e)
     if missing:
         r.say(r.t("several_missing", numbers=", ".join(missing)))
     if not found:
@@ -1306,7 +1337,8 @@ def picked_avrech(r, answer, purpose, tries):
     ans = (answer or "").strip()
     digits = ans[len("Digits-"):] if ans.startswith("Digits-") else (ans if ans.isdigit() else None)
     if digits:
-        found = [e for e in scope if e["emp_number"] == digits]
+        one = find_by_number(digits, scope)
+        found = [one] if one else []
     else:
         found = match_names(ans, scope)
     if not found:
