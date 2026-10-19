@@ -1243,37 +1243,40 @@ def send_choice(r, answer):
             return send_menu(r)
         return record_message(r, targets[answer])
     if answer == "7":
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15)
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
     pick_avrech(r, "message")
 
 
 @step
-def send_several(r, answer):
-    """Several avrechim at once: employee numbers separated by star, e.g. 15*11*17#"""
+def send_several(r, answer, ids=None):
+    """Several avrechim: one employee number at a time (a star-separated list also works), then record."""
+    ids = list(ids or [])
     me = employee(r)
     if not is_manager(me):
         return main_menu(r)
-    numbers = [x for x in re.split(r"[*#\s]+", answer or "") if x]
+    numbers = [x for x in re.split(r"[^0-9]+", answer or "") if x]
     people = manager_scope(me)
-    found, missing = [], []
     for n in dict.fromkeys(numbers):
         e = find_by_number(n, people)
         if e is None:
-            missing.append(n)
-        elif e not in found:
-            found.append(e)
-    if missing:
-        r.say(r.t("several_missing", numbers=", ".join(missing)))
-    if not found:
-        return send_menu(r)
-    r.say(r.t("several_chosen", n=len(found), names=", ".join(e["name"] for e in found)))
-    r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2"], ids=[e["id"] for e in found])
+            r.say(r.t("several_missing", numbers=say_digits(n)))
+        elif e["id"] not in ids:
+            ids.append(e["id"])
+            r.say(r.t("several_added", name=e["name"], n=len(ids)))
+    if not ids:
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
+    r.ask("send_several_ok", r.t("several_confirm"), allowed=["1", "2", "0"], ids=ids)
 
 
 @step
 def send_several_ok(r, answer, ids):
-    if answer != "1":
-        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15)
+    if answer == "1":
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=ids)
+    if answer == "0":
+        return r.ask("send_several", r.t("enter_several"), digits=None, timeout=15, ids=[])
+    with db.connect() as c:
+        names = [c.execute("SELECT name FROM employees WHERE id=?", (x,)).fetchone()[0] for x in ids]
+    r.say(r.t("several_chosen", n=len(ids), names=", ".join(names)))
     record_message(r, {"type": "employees", "ids": ids})
 
 
