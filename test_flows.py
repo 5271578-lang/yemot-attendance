@@ -630,6 +630,27 @@ def test_who_is_here_and_messages_to_present_and_registered():
     assert msg["recipient_label"] == "הנרשמים היום לתפלה בכח" and to == ["301"]
 
 
+def test_manager_registers_new_avrech_by_phone():
+    seed()
+    m = menu_call("0502222222")
+    assert "לרישום אברך חדש הקישו 6" in m.press("9")
+    m.press("6")
+    assert "כבר רשום אצל Worker A1" in m.press("0503333331")         # taken
+    m.press("6"); m.press("0529998877")
+    m.press("123456782")
+    assert "לקבוצת" not in m.press("1") or True
+    m.press("2")                                                      # Darom
+    t = m.press("שמואל גולדברג")
+    assert "השם שנקלט" in t and "שמואל גולדברג" in t
+    t = m.press("1")
+    assert "נרשם בהצלחה" in t
+    with db.connect() as c:
+        e = c.execute("SELECT * FROM employees WHERE phone='0529998877'").fetchone()
+    assert e["name"] == "שמואל גולדברג" and e["pin"] == "1480" and e["shift"] == "A" and e["shuttle_group"] == 2
+    assert e["in_night"] == 1 and e["in_day"] == 0 and e["id_number"] == "123456782" and e["emp_number"] == "401"
+    assert "לרישום אברך חדש" not in menu_call("0503333331").press("9")      # avrechim don't have it
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():

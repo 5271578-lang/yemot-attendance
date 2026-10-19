@@ -883,6 +883,9 @@ def settings_menu(r):
     txt = r.t("settings_meron") + ". " + r.t("settings_phone2") + ". " + txt
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
+    if is_manager(emp):
+        txt = r.t("settings_new_avrech") + ". " + txt
+        keys.append("6")
     r.ask("settings_choice", txt, allowed=keys)
 
 
@@ -895,12 +898,104 @@ def settings_choice(r, answer):
                      allowed=["1", "2", "0"])
     if answer == "5":
         return phone2_menu(r)
+    if answer == "6" and is_manager(employee(r)):
+        return r.ask("new_avrech_phone", r.t("new_avrech_phone"), digits=None, timeout=15)
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         keys = {"he": "1", "en": "2", "yi": "3"}
         return r.ask("language_set", menu, allowed=[keys[lang] for lang in LANGUAGES])
+    main_menu(r)
+
+
+# -- 9 -> 6: a manager registers a new avrech
+
+def _phone_owner(phone):
+    p = db.normalize_phone(phone or "")
+    with db.connect() as c:
+        for e in c.execute("SELECT * FROM employees"):
+            if p and p in (db.normalize_phone(e["phone"] or ""), db.normalize_phone(e["phone2"] or "")):
+                return e
+    return None
+
+
+@step
+def new_avrech_phone(r, answer):
+    if not is_manager(employee(r)):
+        return main_menu(r)
+    digits = re.sub(r"\D", "", answer or "")
+    if not (9 <= len(digits) <= 10 and digits.startswith("0")):
+        r.say(r.t("phone2_bad"))
+        return r.ask("new_avrech_phone", r.t("new_avrech_phone"), digits=None, timeout=15)
+    owner = _phone_owner(digits)
+    if owner:
+        r.say(r.t("new_avrech_phone_taken", name=owner["name"]))
+        return settings_menu(r)
+    r.ask("new_avrech_id", r.t("new_avrech_id"), digits=None, min_digits=0, timeout=15, new={"phone": digits})
+
+
+@step
+def new_avrech_id(r, answer, new):
+    ident = re.sub(r"\D", "", answer or "") if answer not in (None, "None") else ""
+    if ident.strip("0") == "":
+        ident = ""
+    if ident:
+        with db.connect() as c:
+            same = [e for e in c.execute("SELECT name, id_number FROM employees WHERE id_number IS NOT NULL")
+                    if re.sub(r"\D", "", e["id_number"]).lstrip("0") == ident.lstrip("0")]
+        if same:
+            r.say(r.t("new_avrech_id_taken", name=same[0]["name"]))
+            return settings_menu(r)
+    new = dict(new, id_number=ident or None)
+    r.ask("new_avrech_kollel", r.t("new_avrech_kollel"), allowed=["1", "2", "3"], new=new)
+
+
+@step
+def new_avrech_kollel(r, answer, new):
+    new = dict(new, in_night=answer in ("1", "3"), in_day=answer in ("2", "3"))
+    if new["in_night"]:
+        return r.ask("new_avrech_group", r.t("new_avrech_group", g1=GROUPS_SHORT[r.lang][1], g2=GROUPS_SHORT[r.lang][2]),
+                     allowed=["1", "2", "0"], new=new)
+    ask_new_name(r, new)
+
+
+@step
+def new_avrech_group(r, answer, new):
+    ask_new_name(r, dict(new, group=int(answer) if answer in ("1", "2") else None))
+
+
+def ask_new_name(r, new):
+    r.ask_voice("new_avrech_name", r.t("new_avrech_name"), new=new)
+
+
+@step
+def new_avrech_name(r, answer, new):
+    name = (answer or "").strip()
+    if not name or name.startswith("Digits") or name in ("None",) or any(ch.isdigit() for ch in name):
+        r.say(r.t("new_avrech_name_missed"))
+        return r.ask("new_avrech_name_ok", r.t("new_avrech_name_retry"), allowed=["2", "3"], new=new, name="")
+    r.ask("new_avrech_name_ok", r.t("new_avrech_name_heard", name=name), allowed=["1", "2", "3"], new=new, name=name)
+
+
+@step
+def new_avrech_name_ok(r, answer, new, name):
+    if answer == "2":
+        return ask_new_name(r, new)
+    if answer == "3" or not name:
+        name = f"אברך חדש {new['phone']}"
+    me = employee(r)
+    if not is_manager(me) or _phone_owner(new["phone"]):
+        return main_menu(r)
+    with db.connect() as c:
+        nums = [int(x[0]) for x in c.execute("SELECT emp_number FROM employees") if str(x[0]).isdigit() and len(str(x[0])) <= 6]
+        number = str(max(nums + [0]) + 1)
+        shift = me["shift"] if me["role"] == "onsite_manager" and new["in_night"] else None
+        c.execute("INSERT INTO employees(emp_number, name, phone, pin, role, shift, shuttle_group, id_number, in_night, in_day, "
+                  "language, joined_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (number, name, new["phone"], "1480", "employee", shift, new.get("group"), new["id_number"],
+                   1 if new["in_night"] else 0, 1 if new["in_day"] else 0, "he", db.now().date().isoformat()))
+    r.say(r.t("new_avrech_saved", name=name, number=say_digits(number)))
     main_menu(r)
 
 
