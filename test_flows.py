@@ -584,6 +584,52 @@ def test_manager_trip_and_tefila_status():
     assert "לWorker A1 יש 1 כניסות להגרלה" in t
 
 
+def test_who_is_here_and_messages_to_present_and_registered():
+    import tefila
+    seed()
+    at(2026, 11, 17, 2, 40)
+    menu_call("0503333331").press("1")                                # 300 in
+    menu_call("0503333334").press("1")                                # 303 in
+    at(2026, 11, 17, 4, 0)
+    c = menu_call("0503333334"); c.press("2")                         # 303 left early
+    at(2026, 11, 17, 4, 30)
+    m = menu_call("0502222222")                                       # site manager A (shift A)
+    m.press("6")
+    t = m.press("3")
+    assert "נוכחים כרגע 1 אברכים" in t and "Worker A1" in t and "No Shuttle" not in t
+    t = m.press("1")
+    assert "לא נוכחים" in t and "No Shuttle" in t
+    m.press("2"); m.press("/8/here.wav")
+    with db.connect() as conn:
+        msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (msg["id"],))]
+    assert msg["recipient_label"] == "מי שנוכח כרגע" and to == ["300"]
+    # from the send menu too: 4 -> 2 -> 8
+    m = menu_call("0502222222"); m.press("4"); m.press("2")
+    assert ",record," in m.press("8")
+    # trip registrants (7 -> 2 -> 2) and tefila registrants (8 -> 3)
+    at(2026, 10, 18, 21, 0)
+    c = menu_call("0503333331"); c.press("7"); c.press("1")
+    m = menu_call("0502222222"); m.press("7"); m.press("2")
+    m.press("2"); m.press("/8/trip.wav")
+    with db.connect() as conn:
+        msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (msg["id"],)).fetchone()[0]
+    assert msg["recipient_label"] == "הנרשמים לנסיעה" and n == 1
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("2026-10-19,06:22:20\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 19, 5, 30)
+    c = menu_call("0503333332"); c.press("8"); c.press("1")
+    at(2026, 10, 19, 9, 0)
+    m = menu_call("0501111111"); m.press("8")
+    m.press("3"); m.press("/8/tef.wav")
+    with db.connect() as conn:
+        msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (msg["id"],))]
+    assert msg["recipient_label"] == "הנרשמים היום לתפלה בכח" and to == ["301"]
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():
