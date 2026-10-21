@@ -21,7 +21,7 @@ CAMPAIGN = {
     "first": date(2026, 10, 18),
     "last": date(2026, 12, 12),                # Zos Chanuka, 2 Teves 5787
     "opens_before": 60,                        # minutes before netz
-    "closes_before": 30,
+    "closes_before": 28,
     "prizes": ["כרטיס טיסה לאומן", "השלמת הסבסוד לנסיעה לאומן בסוף החורף",
                "200 ש\"ח", "200 ש\"ח", "200 ש\"ח"],
 }
@@ -73,6 +73,20 @@ def is_open(emp=None, now=None):
         return False
     w = window(d)
     return bool(w and w[0] <= now < w[1])
+
+
+def campaign_day(emp=None, now=None):
+    """A day of the campaign (the key is in the menu all day; registering only inside the window)."""
+    d = (now or db.now()).date()
+    if not (CAMPAIGN["first"] <= d <= CAMPAIGN["last"]):
+        return False
+    return emp is None or (emp["active"] and for_employee(emp))
+
+
+def entries_of(emp_id):
+    with db.connect() as c:
+        return c.execute("SELECT COUNT(*) FROM tefila_entries WHERE campaign=? AND employee_id=?",
+                         (CAMPAIGN["id"], emp_id)).fetchone()[0]
 
 
 def manager_period(now=None):

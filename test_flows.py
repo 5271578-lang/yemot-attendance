@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        for t in ("tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        for t in ("gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -127,7 +127,7 @@ def test_protocol_format():
     msgs, fields = t[len("read="):].split("=")
     assert msgs.startswith("t-") and ".t-" in msgs
     f = fields.split(",")
-    assert len(f) == 14 and f[9] == "1.2.4.5.6.9.*" and f[11] == "Ok" and f[12] == "None"
+    assert len(f) == 14 and f[9] == "1.2.4.5.6.9.*.8" and f[11] == "Ok" and f[12] == "None"
 
 
 def test_unknown_phone_signs_in_with_phone_and_password():
@@ -466,22 +466,27 @@ def test_tefila_bekoach_key_8():
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("date,netz\n2026-10-18,06:21:40\n2026-10-19,06:22:20\n")
     tefila.NETZ_FILE = f
-    at(2026, 10, 18, 5, 15)                                           # 66 min before netz: closed
-    assert "תפילה בכוח" not in Call("0503333331").start()
-    at(2026, 10, 18, 5, 25)                                           # 56 min before: open
+    at(2026, 10, 18, 5, 15)                                           # 66 min before netz: closed, but the key is there
     assert "למבצע תפילה בכוח הקישו 8" in Call("0503333331").start()
+    t = menu_call("0503333331").press("8")
+    assert "רק מרבע שעה לפני התפילה עד קדיש דרבנן" in t and "להרשמה להגרלה" not in t and "כמה כניסות" in t
+    at(2026, 10, 18, 5, 25)                                           # 56 min before: open
     c = menu_call("0503333331")
     t = c.press("8")
-    assert "טלית ותפילין" in t
+    assert "t-להרשמה להגרלה הקישו 1.t-לשמוע כמה כניסות יש לך להגרלה הקישו 2" in t and "קדיש" not in t
     t = c.press("1")
     assert "נרשמת בהצלחה למבצע תפילה בכוח להיום" in t and "כניסה אחת" in t and "hangup" in t
-    c = menu_call("0503333331")
-    assert "כבר נרשמת היום" in c.press("8")
+    c = menu_call("0503333331"); c.press("8")
+    assert "כניסה אחת" in c.press("2")
+    c = menu_call("0503333331"); c.press("8")
+    assert "כבר נרשמת היום" in c.press("1")
     with db.connect() as conn:                                        # Kollel Horaah only: not for him
         conn.execute("UPDATE employees SET in_night=0, in_day=1 WHERE emp_number='303'")
     assert "8" not in menu_call("0503333334").press("8").split("=")[-1].split(",")[9].split(".")
-    at(2026, 10, 18, 5, 52)                                           # 29 min before: closed
-    assert "תפילה בכוח" not in Call("0503333332").start()
+    at(2026, 10, 18, 5, 53)                                           # 28.67 min before: still open
+    assert "להרשמה להגרלה" in menu_call("0503333332").press("8")
+    at(2026, 10, 18, 5, 54)                                           # 27.67 min before: closed
+    assert "להרשמה להגרלה" not in menu_call("0503333332").press("8")
     at(2026, 10, 19, 5, 30)
     c = menu_call("0503333331"); c.press("8")
     assert "יש לך 2 כניסות להגרלה" in c.press("1")
@@ -597,7 +602,7 @@ def test_manager_trip_and_tefila_status():
     c = menu_call("0503333331"); c.press("8"); c.press("1")
     at(2026, 10, 19, 10, 0)
     m = menu_call("0501111111")
-    t = m.press("8")
+    m.press("8"); t = m.press("3")
     assert "היום נרשמו 1 אברכים" in t and "1 כניסות להגרלה, של 1 אברכים" in t
     assert "Worker A1" in m.press("2")
     m.press("1")
@@ -643,7 +648,7 @@ def test_who_is_here_and_messages_to_present_and_registered():
     at(2026, 10, 19, 5, 30)
     c = menu_call("0503333332"); c.press("8"); c.press("1")
     at(2026, 10, 19, 9, 0)
-    m = menu_call("0501111111"); m.press("8")
+    m = menu_call("0501111111"); m.press("8"); m.press("3")
     m.press("3"); m.press("/8/tef.wav")
     with db.connect() as conn:
         msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
@@ -741,7 +746,7 @@ def test_manager_approves_corrections_and_adds_tefila_by_phone():
     open(f, "w").write("2026-10-19,06:22:20\n")
     tefila.NETZ_FILE = f
     at(2026, 10, 19, 9, 0)
-    m = menu_call("0502222222"); m.press("8")
+    m = menu_call("0502222222"); m.press("8"); m.press("3")
     m.press("5"); m.press("1")
     t = m.press("300*303*999")
     assert "Worker A1 נוסף להגרלה" in t and "No Shuttle נוסף להגרלה" in t and "9 9 9 לא נמצא" in t
@@ -752,6 +757,26 @@ def test_manager_approves_corrections_and_adds_tefila_by_phone():
     client.post("/admin/tefila", headers=AUTH, data={"action": "add", "day": "2026-10-18", "employee_id": [str(emp("301")["id"])]})
     assert len(tefila.entries_of_day("2026-10-18")) == 1
     assert "added by hand" in client.get("/admin/tefila?day=2026-10-18", headers=AUTH).data.decode()
+
+
+def test_separate_bonus_by_phone_and_admin():
+    seed()
+    m = menu_call("0502222222"); m.press("9")
+    m.press("8"); m.press("Digits-303")
+    t = m.press("1")                                                    # confirm the avrech
+    assert "הקישו את סכום הבונוס" in t
+    t = m.press("150")
+    assert "בונוס של 150 שקלים לNo Shuttle" in t
+    assert "נשמר בונוס של 150 שקלים" in m.press("1")
+    hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
+    s = schedule.month_summary(emp("303"), hy, hm)
+    assert s["gifts"] == 150 and s["stipend"] == 0 and not s["eligible"] and s["total"] == 150
+    sp = schedule.payer_split(s)
+    assert sp["ohr_hatzadik"] == 150 and sp["total"] == 150 and sp["jerusalem"] == 0
+    client.post(f"/admin/employee/{emp('303')['id']}/gift?hy={hy}&hm={hm}", headers=AUTH, data={"amount": "50", "note": "x"})
+    assert schedule.month_summary(emp("303"), hy, hm)["gifts"] == 200
+    html = client.get(f"/admin/?hy={hy}&hm={hm}", headers=AUTH).data.decode()
+    assert "separate bonuses 200" in html
 
 
 # ---- messages ------------------------------------------------------------
@@ -1047,7 +1072,7 @@ def test_monthly_email_report():
     # 300: 8 Meron nights: 880 stipend (half each) + 280 Meron (Jerusalem) + 300 bonus (Ohr Hatzadik)
     # 302: 10 nights: 1100 (half each) + 300 bonus
     sp = schedule.payer_split(schedule.month_summary(emp("300"), 5787, 8))
-    assert sp == {"kollel": 1180, "meron": 280, "total": 1460, "jerusalem": 440 + 280, "ohr_hatzadik": 440 + 300}
+    assert sp == {"kollel": 1180, "meron": 280, "gifts": 0, "total": 1460, "jerusalem": 440 + 280, "ohr_hatzadik": 440 + 300}
     t = report.totals(report.rows_for(5787, 8))
     assert t["kollel"] == 1180 + 1400 and t["meron"] == 280 and t["total"] == 2860
     assert t["jerusalem"] == 440 + 280 + 550 and t["ohr_hatzadik"] == 440 + 300 + 550 + 300

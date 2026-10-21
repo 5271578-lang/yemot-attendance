@@ -423,6 +423,8 @@ def month_summary(emp, hy, hm, until=None):
     with db.connect() as c:
         extras = c.execute("SELECT COALESCE(SUM(amount),0) FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
                            (emp["id"], hy, hm)).fetchone()[0]
+        gifts = c.execute("SELECT COALESCE(SUM(amount),0) FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=?",
+                          (emp["id"], hy, hm)).fetchone()[0]
     nightly = round(sum(n["total"] for n in nights), 2)
     base = round(sum(n["base"] for n in nights), 2)
     timing = sum(n["bonus"] for n in nights)
@@ -442,7 +444,8 @@ def month_summary(emp, hy, hm, until=None):
         "base": base, "timing": timing, "percent_bonus": percent_bonus, "extras": round(extras, 2),
         "stipend": stipend, "eligible": eligible, "meron_nights": meron_nights, "meron": meron,
         "drives": drives, "driver": driver, "rate_ok": rate_ok, "meron_nightly": meron_nightly,
-        "total": round((stipend if eligible else 0) + meron + driver, 2) if rate_ok else None,
+        "gifts": round(gifts, 2),      # separate bonus: not part of the stipend, the minimum or the percents
+        "total": round((stipend if eligible else 0) + meron + driver + gifts, 2) if rate_ok else None,
     }
 
 
@@ -509,12 +512,14 @@ def payer_split(s):
     else:
         shared, bonus = 0.0, 0
     meron = round(s["meron"] + s["driver"], 2)
+    gifts = s.get("gifts", 0)                      # separate bonuses -> Ohr Hatzadik
     return {
         "kollel": round(shared + bonus, 2),
         "meron": meron,
-        "total": round(shared + bonus + meron, 2),
+        "gifts": round(gifts, 2),
+        "total": round(shared + bonus + meron + gifts, 2),
         "jerusalem": round(shared * SPLIT_SHARE + meron, 2),
-        "ohr_hatzadik": round(shared * (1 - SPLIT_SHARE) + bonus, 2),
+        "ohr_hatzadik": round(shared * (1 - SPLIT_SHARE) + bonus + gifts, 2),
     }
 
 

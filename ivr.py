@@ -354,7 +354,7 @@ def main_menu(r):
         txt += ". " + r.t("menu_driver")
         keys.append("3")
     rest = r.t("menu_rest")
-    if tefila.is_open(emp) or (is_manager(emp) and tefila.manager_period()):
+    if tefila.campaign_day(emp) or (is_manager(emp) and tefila.manager_period()):
         rest += ". " + r.t("tefila_menu")
         keys.append(tefila.CAMPAIGN["key"])
     shown = set()
@@ -386,11 +386,7 @@ def main_choice(r, answer):
         return main_menu(r)
     if answer in actions and (answer != "3" or emp["is_driver"]):
         return actions[answer](r)
-    if answer == tefila.CAMPAIGN["key"] and is_manager(emp) and tefila.manager_period():
-        if tefila.is_open(emp):
-            return r.ask("tefila_manager_choice", r.t("tefila_manager_menu"), allowed=["1", "2"])
-        return tefila_status(r)
-    if answer == tefila.CAMPAIGN["key"] and tefila.is_open(emp):
+    if answer == tefila.CAMPAIGN["key"] and (tefila.campaign_day(emp) or (is_manager(emp) and tefila.manager_period())):
         return tefila_start(r)
     if is_manager(emp):
         trip = next((t for t in trips.recent_trips() if t["key"] == answer), None)
@@ -408,26 +404,40 @@ def main_choice(r, answer):
 # ---- 8: Mivtza Tefila B'Koach (tefila.py) --------------------------------
 
 def tefila_entries_text(r, n):
+    if n == 0:
+        return r.t("tefila_entries_none")
     return r.t("tefila_entries_one") if n == 1 else r.t("tefila_entries", n=n)
 
 
 def tefila_start(r):
-    with db.connect() as c:
-        done = c.execute("SELECT COUNT(*) FROM tefila_entries WHERE campaign=? AND employee_id=?",
-                         (tefila.CAMPAIGN["id"], r.s["employee_id"])).fetchone()[0]
-        today = c.execute("SELECT 1 FROM tefila_entries WHERE campaign=? AND employee_id=? AND day=?",
-                          (tefila.CAMPAIGN["id"], r.s["employee_id"], call_start(r).date().isoformat())).fetchone()
-    if today:
-        r.say(r.t("tefila_already", entries=tefila_entries_text(r, done)))
+    """Key 8: 1 = register (only inside the window), 2 = how many entries I have, 3 = (managers) the status."""
+    me = employee(r)
+    is_open = tefila.is_open(me, call_start(r))
+    keys, txt = ["2"], []
+    if not is_open and tefila.campaign_day(me):
+        txt.append(r.t("tefila_closed"))
+    if is_open:
+        keys.append("1")
+        txt.append(r.t("tefila_menu_register"))
+    if tefila.campaign_day(me):
+        txt.append(r.t("tefila_menu_entries"))
+    if is_manager(me) and tefila.manager_period():
+        keys.append("3")
+        txt.append(r.t("tefila_menu_status"))
+    if keys == ["2"] and not tefila.campaign_day(me):
         return main_menu(r)
-    r.ask("tefila_confirm", r.t("tefila_intro"), allowed=["1"], timeout=10)
+    r.ask("tefila_choice", ". ".join(txt), allowed=keys, timeout=10)
 
 
 @step
-def tefila_confirm(r, answer):
-    if answer != "1":
+def tefila_choice(r, answer):
+    me = employee(r)
+    if answer == "3" and is_manager(me):
+        return tefila_status(r)
+    if answer == "2":
+        r.say(tefila_entries_text(r, tefila.entries_of(me["id"])))
         return main_menu(r)
-    if not tefila.is_open(employee(r), call_start(r)):
+    if not tefila.is_open(me, call_start(r)):
         r.say(r.t("tefila_closed"))
         return main_menu(r)
     new, n = tefila.register(r.s["employee_id"], call_start(r))
@@ -995,8 +1005,8 @@ def settings_menu(r):
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     if is_manager(emp):
-        txt = r.t("settings_new_avrech") + ". " + r.t("settings_edit_avrech") + ". " + txt
-        keys += ["6", "7"]
+        txt = r.t("settings_new_avrech") + ". " + r.t("settings_edit_avrech") + ". " + r.t("settings_gift") + ". " + txt
+        keys += ["6", "7", "8"]
     r.ask("settings_choice", txt, allowed=keys)
 
 
@@ -1013,6 +1023,8 @@ def settings_choice(r, answer):
         return r.ask("new_avrech_phone", r.t("new_avrech_phone"), digits=None, timeout=15)
     if answer == "7" and is_manager(employee(r)):
         return pick_avrech(r, "edit")
+    if answer == "8" and is_manager(employee(r)):
+        return pick_avrech(r, "gift")
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
@@ -1254,6 +1266,31 @@ def edit_name_ok(r, answer, eid, name):
     if answer != "1":
         return r.ask_voice("edit_name", r.t("new_avrech_name"), eid=eid)
     _edit_saved(r, eid, "name", name)
+
+
+# -- 9 -> 8: a separate bonus (not part of the stipend)
+
+@step
+def gift_amount(r, answer, eid):
+    t = _target(r, eid)
+    amount = int(re.sub(r"\D", "", answer or "") or 0)
+    if t is None or amount <= 0:
+        return main_menu(r)
+    r.ask("gift_ok", r.t("gift_confirm", amount=amount, name=t["name"]), allowed=["1", "2"], eid=eid, amount=amount)
+
+
+@step
+def gift_ok(r, answer, eid, amount):
+    t = _target(r, eid)
+    if t is None or answer != "1":
+        r.say(r.t("gift_cancelled"))
+        return main_menu(r)
+    hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
+    with db.connect() as c:
+        c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by) VALUES (?,?,?,?,?,?,?)",
+                  (eid, hy, hm, amount, "added by phone", db.now().isoformat(), r.s["employee_id"]))
+    r.say(r.t("gift_saved", amount=amount, name=t["name"], month=hebcal.month_name(hm, hy, "he")))
+    main_menu(r)
 
 
 # -- 9 -> 5: additional phone
@@ -1676,6 +1713,9 @@ def avrech_choice(r, answer, purpose, ids):
         return tefila_status_of(r, target)
     if purpose == "edit":
         return edit_menu(r, target["id"])
+    if purpose == "gift":
+        r.say(r.t("target_is", name=target["name"]))
+        return r.ask("gift_amount", r.t("gift_amount"), digits=None, timeout=15, eid=target["id"])
     r.say(r.t("target_is", name=target["name"]))
     record_message(r, {"type": "employee", "employee_id": target["id"]})
 

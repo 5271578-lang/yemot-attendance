@@ -53,7 +53,7 @@ def rows_for(hy, hm, until=None):
 
 
 def totals(rows):
-    keys = ("kollel", "meron", "total", "jerusalem", "ohr_hatzadik")
+    keys = ("kollel", "meron", "gifts", "total", "jerusalem", "ohr_hatzadik")
     out = dict.fromkeys(keys, 0.0)
     for _e, s in rows:
         sp = schedule.payer_split(s)
@@ -83,6 +83,7 @@ def build(hy, hm, until=None):
     summary = f"""<table style="border-collapse:collapse;margin:8px 0 16px" dir="rtl">
 <tr><td {td}>סך הכל כולל</td><td {tdb}>{money(t["kollel"])} ש"ח</td></tr>
 <tr><td {td}>סך הכל מירון</td><td {tdb}>{money(t["meron"])} ש"ח</td></tr>
+{f'<tr><td {td}>בונוסים מיוחדים (לא חלק מהמלגה)</td><td {tdb}>{money(t["gifts"])} ש"ח</td></tr>' if t["gifts"] else ""}
 <tr><td {td}>סך הכל, הכל ביחד</td><td {tdb}>{money(t["total"])} ש"ח</td></tr>
 <tr><td {td}>לשלוח לכולל חצות ירושלים, סניף צפת</td><td {tdb}>{money(t["jerusalem"])} ש"ח</td></tr>
 <tr><td {td}>הוצאות כולל חצות אור הצדיק מגן אברהם</td><td {tdb}>{money(t["ohr_hatzadik"])} ש"ח</td></tr>

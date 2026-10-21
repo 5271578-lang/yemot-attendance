@@ -121,6 +121,16 @@ CREATE TABLE IF NOT EXISTS tefila_draws (
     tickets INTEGER NOT NULL,
     result TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS gifts (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    heb_year INTEGER NOT NULL,
+    heb_month INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    added_by INTEGER
+);
 CREATE TABLE IF NOT EXISTS trip_signups (
     trip TEXT NOT NULL,
     employee_id INTEGER NOT NULL REFERENCES employees(id),

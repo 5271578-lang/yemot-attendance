@@ -108,7 +108,7 @@ def payroll_rows(hy, hm):
     out = []
     for e in emps:
         m = schedule.month_summary(e, hy, hm)
-        if not m["nights"] and not m["extras"] and (not e["active"] or not schedule.in_night(e)):
+        if not m["nights"] and not m["extras"] and not m["gifts"] and (not e["active"] or not schedule.in_night(e)):
             continue
         out.append(dict(emp=e, nightly=schedule.nightly_base(e), **m))
     return out
@@ -131,7 +131,7 @@ def payroll():
 <button>E-mail this summary now</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th class="right">Nights</th><th class="right">Whole</th>
 <th class="right">Attendance</th><th class="right">Nightly</th><th class="right">70/80%</th><th class="right">Extras</th>
-<th class="right">Stipend</th><th class="right">Meron</th><th class="right">Driver</th><th class="right">Total ₪</th></tr>
+<th class="right">Stipend</th><th class="right">Meron</th><th class="right">Driver</th><th class="right">Bonus</th><th class="right">Total ₪</th></tr>
 {% for r in rows %}<tr><td>{{ r.emp.emp_number }}</td>
 <td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a>
 <span class="muted">{{ roles[r.emp.role] if r.emp.role != 'employee' else '' }}</span></td>
@@ -140,18 +140,20 @@ def payroll():
 <td class="right">{{ '%.2f'|format(r.extras) }}</td>
 <td class="right">{% if r.eligible %}{{ '%.2f'|format(r.stipend) }}{% else %}<span class="warn" title="below the minimum">0</span>
 <span class="muted">({{ '%.0f'|format(r.stipend) }})</span>{% endif %}</td>
-<td class="right">{{ r.meron }}</td><td class="right">{{ r.driver }}</td>
+<td class="right">{{ r.meron }}</td><td class="right">{{ r.driver }}</td><td class="right">{{ r.gifts or '' }}</td>
 <td class="right"><b>{% if r.total is none %}<span class="warn">rate not set</span>{% else %}{{ '%.2f'|format(r.total) }}{% endif %}</b></td>
 </tr>{% endfor %}
 </table></div>
 <div class="box"><b>Totals:</b> kollel {{ '{:,.0f}'.format(t.kollel) }} · Meron {{ '{:,.0f}'.format(t.meron) }} ·
+{% if t.gifts %}separate bonuses {{ '{:,.0f}'.format(t.gifts) }} · {% endif %}
 all together <b>{{ '{:,.0f}'.format(t.total) }}</b> · to Kollel Chatzos Jerusalem (Tzfas) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 Ohr Hatzadik <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
-<div class="muted">Meron (35 a night, 60 for driving) → Jerusalem. 70/80% bonuses → Ohr Hatzadik. The rest: half each.</div></div>
+<div class="muted">Meron (35 a night, 60 for driving) → Jerusalem. 70/80% bonuses and separate bonuses → Ohr Hatzadik. The rest: half each.</div></div>
 <p class="muted">The night month runs from the 27th of the month before to the 26th. Nightly: 80 × share of the kollel hours present (2:30–7:30, bein hazmanim 3:30–7:30), +20 up to 10 minutes late,
 +30 before the start. A night without an exit counts until 7:30. Attendance % is by time only.
 70% → +200, 80% → +100 more. Below 2 whole nights or below 500 (without Meron) → no stipend (red 0).
-Meron: 35 a night. Driver: 60 a night. Extras = Uman nights and bonuses added by hand.</p>"""
+Meron: 35 a night. Driver: 60 a night. Extras = Uman nights and stipend additions added by hand (part of the stipend).
+Bonus = a separate bonus, not part of the stipend: always paid, not counted for the minimum or the percents.</p>"""
     title = f"{hebcal.month_name(hm, hy)} {hy}"
     return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last,
                 title=title, roles=ROLE_NAMES, msg=request.args.get("msg"),
@@ -195,6 +197,8 @@ def employee_month(eid):
         uman = c.execute("SELECT * FROM uman WHERE employee_id=? ORDER BY heb_year DESC", (eid,)).fetchall()
         bons = c.execute("SELECT * FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
                          (eid, hy, hm)).fetchall()
+        gifts = c.execute("SELECT * FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=? ORDER BY created_at",
+                          (eid, hy, hm)).fetchall()
     body = """
 <h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">← back</a> ·
 <a href="?hy={{py[0]}}&hm={{py[1]}}">◀ previous month</a> · <a href="?hy={{ny[0]}}&hm={{ny[1]}}">next month ▶</a>
@@ -226,7 +230,13 @@ attendance {{ (sm.percent * 100)|round(1) }}% · stipend {{ '%.2f'|format(sm.sti
 <div class="box"><b>Add a shift manually</b><form method="post" action="{{ url_for('admin.add_attendance', eid=e.id) }}">
 In <input type="datetime-local" name="clock_in" required> Out <input type="datetime-local" name="clock_out">
 Note <input name="note"> <button>Add</button></form></div>
-<div class="box"><b>Bonuses this month</b><table>{% for b in bons %}<tr><td>{{ b.note or '' }}</td>
+<div class="box"><b>Separate bonus</b> <span class="muted">(not part of the stipend: always paid, not counted for the minimum or the percents)</span>
+<table>{% for g in gifts %}<tr><td>{{ g.note or '' }}</td><td class="right">{{ '%.2f'|format(g.amount) }} ₪</td>
+<td class="muted">{{ fmt(g.created_at) }}{{ ' · by phone' if g.added_by and g.added_by > 0 else '' }}</td>
+<td><form method="post" action="{{ url_for('admin.delete_gift', gid=g.id) }}"><button>Remove</button></form></td></tr>{% endfor %}</table>
+<form method="post" action="{{ url_for('admin.add_gift', eid=e.id, hy=hy, hm=hm) }}">
+Amount ₪ <input name="amount" type="number" step="0.01" required> For <input name="note"> <button>Add separate bonus</button></form></div>
+<div class="box"><b>Stipend additions this month</b> <span class="muted">(part of the stipend)</span><table>{% for b in bons %}<tr><td>{{ b.note or '' }}</td>
 <td class="right">{{ '%.2f'|format(b.amount) }} ₪</td><td><form method="post" action="{{ url_for('admin.delete_bonus', bid=b.id) }}">
 <button>Remove</button></form></td></tr>{% endfor %}</table>
 <form method="post" action="{{ url_for('admin.add_bonus', eid=e.id, hy=hy, hm=hm) }}">
@@ -238,7 +248,7 @@ Amount ₪ <input name="amount" type="number" step="0.01" required> For <input n
         pay[rs[0]["id"]] = n
     sm = schedule.month_summary(e, hy, hm)
     drove = set(schedule.driver_nights(eid, nfirst, nlast))
-    return page(body, e=e, recs=recs, bons=bons, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
+    return page(body, e=e, recs=recs, bons=bons, gifts=gifts, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
                 session_of=lambda a: schedule.session_date(db.parse(a["clock_in"])),
                 title=f"{hebcal.month_name(hm, hy)} {hy}", fmt=fmt, heb=lambda d: hebcal.format_date(d), nfirst=nfirst, nlast=nlast,
                 py=hebcal.prev_month(hy, hm), ny=hebcal.next_month(hy, hm))
@@ -345,6 +355,23 @@ def add_bonus(eid):
         c.execute("INSERT INTO bonuses(employee_id, heb_year, heb_month, amount, note) VALUES (?,?,?,?,?)",
                   (eid, hy, hm, float(request.form["amount"]), request.form.get("note")))
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+@bp.route("/employee/<int:eid>/gift", methods=["POST"])
+def add_gift(eid):
+    hy, hm = month_args()
+    with db.connect() as c:
+        c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by) VALUES (?,?,?,?,?,?,?)",
+                  (eid, hy, hm, float(request.form["amount"]), request.form.get("note"), db.now().isoformat(), -1))
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+@bp.route("/gift/<int:gid>/delete", methods=["POST"])
+def delete_gift(gid):
+    with db.connect() as c:
+        g = c.execute("SELECT * FROM gifts WHERE id=?", (gid,)).fetchone()
+        c.execute("DELETE FROM gifts WHERE id=?", (gid,))
+    return redirect(url_for("admin.employee_month", eid=g["employee_id"], hy=g["heb_year"], hm=g["heb_month"]))
 
 
 @bp.route("/bonus/<int:bid>/delete", methods=["POST"])
