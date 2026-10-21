@@ -47,7 +47,7 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Kollel Chatzos</a><a href="{{ url_for('admin.day_payroll') }}">Kollel Horaah</a>
 <a href="{{ url_for('admin.employees', k='night') }}">Chatzos avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Horaah avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
-<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a></nav>
+<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a><a href="{{ url_for('admin.gifts_page') }}">Bonuses</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -371,7 +371,46 @@ def delete_gift(gid):
     with db.connect() as c:
         g = c.execute("SELECT * FROM gifts WHERE id=?", (gid,)).fetchone()
         c.execute("DELETE FROM gifts WHERE id=?", (gid,))
+    if request.form.get("back") == "list":
+        return redirect(url_for("admin.gifts_page", hy=g["heb_year"], hm=g["heb_month"]))
     return redirect(url_for("admin.employee_month", eid=g["employee_id"], hy=g["heb_year"], hm=g["heb_month"]))
+
+
+@bp.route("/bonuses", methods=["GET", "POST"])
+def gifts_page():
+    """Separate bonuses (not part of the stipend) of one Kollel Chatzos month, for all avrechim."""
+    hy, hm = month_args()
+    if request.method == "POST":
+        amount = float(request.form["amount"])
+        with db.connect() as c:
+            for eid in request.form.getlist("employee_id"):
+                c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by) "
+                          "VALUES (?,?,?,?,?,?,?)", (int(eid), hy, hm, amount, request.form.get("note"), db.now().isoformat(), -1))
+        return redirect(url_for("admin.gifts_page", hy=hy, hm=hm))
+    with db.connect() as c:
+        rows = c.execute("SELECT g.*, e.name, e.emp_number, b.name AS by_name FROM gifts g JOIN employees e ON e.id=g.employee_id "
+                         "LEFT JOIN employees b ON b.id=g.added_by WHERE g.heb_year=? AND g.heb_month=? ORDER BY g.created_at DESC",
+                         (hy, hm)).fetchall()
+        avrechim = c.execute("SELECT id, name, emp_number FROM employees WHERE active=1 ORDER BY name").fetchall()
+    py, pm = hebcal.prev_month(hy, hm)
+    ny, nm = hebcal.next_month(hy, hm)
+    body = """<h1>Separate bonuses · {{ title }}</h1>
+<p class="muted">Not part of the stipend: always paid, not counted for the minimum or the percents. Paid by Ohr Hatzadik.
+<a href="?hy={{py}}&hm={{pm}}">◀ previous month</a> · <a href="?hy={{ny}}&hm={{nm}}">next month ▶</a></p>
+<div class="box"><b>Add</b><form method="post">
+<select name="employee_id" multiple size="7" style="min-width:280px" required>{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
+Amount ₪ <input name="amount" type="number" step="0.01" required> For <input name="note"> <button>Add bonus</button>
+<span class="muted">Ctrl+click to give the same bonus to several avrechim.</span></form></div>
+<div class="wrap"><table><tr><th>No.</th><th>Name</th><th class="right">Amount</th><th>For</th><th>Added</th><th></th></tr>
+{% for g in rows %}<tr><td>{{ g.emp_number }}</td><td><a href="{{ url_for('admin.employee_month', eid=g.employee_id, hy=hy, hm=hm) }}">{{ g.name }}</a></td>
+<td class="right">{{ '%.2f'|format(g.amount) }}</td><td>{{ g.note or '' }}</td>
+<td class="muted">{{ fmt(g.created_at) }}{% if g.by_name %} · by {{ g.by_name }} (phone){% endif %}</td>
+<td><form method="post" action="{{ url_for('admin.delete_gift', gid=g.id) }}"><input type="hidden" name="back" value="list"><button>Remove</button></form></td></tr>
+{% else %}<tr><td colspan="6" class="muted">No bonuses this month.</td></tr>{% endfor %}
+{% if rows %}<tr><td></td><td><b>Total</b></td><td class="right"><b>{{ '%.2f'|format(rows|sum(attribute='amount')) }}</b></td><td colspan="3"></td></tr>{% endif %}
+</table></div>"""
+    return page(body, rows=rows, avrechim=avrechim, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, fmt=fmt,
+                title=f"{hebcal.month_name(hm, hy)} {hy}")
 
 
 @bp.route("/bonus/<int:bid>/delete", methods=["POST"])

@@ -777,6 +777,10 @@ def test_separate_bonus_by_phone_and_admin():
     assert schedule.month_summary(emp("303"), hy, hm)["gifts"] == 200
     html = client.get(f"/admin/?hy={hy}&hm={hm}", headers=AUTH).data.decode()
     assert "separate bonuses 200" in html
+    client.post(f"/admin/bonuses?hy={hy}&hm={hm}", headers=AUTH,
+                data={"employee_id": [str(emp("300")["id"]), str(emp("301")["id"])], "amount": "100", "note": "Chanuka"})
+    html = client.get(f"/admin/bonuses?hy={hy}&hm={hm}", headers=AUTH).data.decode()
+    assert "Chanuka" in html and "400.00" in html and "by Site Mgr A (phone)" in html
 
 
 # ---- messages ------------------------------------------------------------
