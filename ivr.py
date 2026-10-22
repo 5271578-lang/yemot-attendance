@@ -519,11 +519,11 @@ def m_send_menu(r):
     opts = [r.t("m_to_mashgichim"), r.t("m_to_managers")]
     keys = ["1", "2"]
     for e in moreshet.members():
-        if e["id"] != me["id"] and e["moreshet_key"] and e["moreshet_key"] not in keys:
+        if e["id"] != me["id"] and e["moreshet_key"] and e["moreshet_key"] not in keys + ["7"]:
             opts.append(r.t("m_to_person", name=(e["name"] or "").split()[0], digit=e["moreshet_key"]))
             keys.append(e["moreshet_key"])
     opts.append(r.t("m_to_all"))
-    keys.append("9")
+    keys.append("7")
     r.ask("m_send_choice", ". ".join(opts), allowed=keys)
 
 
@@ -536,7 +536,7 @@ def m_send_choice(r, answer):
         target = {"type": "m_mashgichim"}
     elif answer == "2":
         target = {"type": "m_managers"}
-    elif answer == "9":
+    elif answer == "7":
         target = {"type": "m_all"}
     else:
         who = next((e for e in moreshet.members() if e["moreshet_key"] == answer and e["id"] != me["id"]), None)

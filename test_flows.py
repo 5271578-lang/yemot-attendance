@@ -809,7 +809,7 @@ def test_moreshet_hanachal_00():
     t = m.press("0")
     assert "לשמיעת הודעות הקישו 1" in t
     t = m.press("2")
-    assert "לנתן הקישו 4" in t and "לWorker הקישו 3" in t and "למשגיחים הקישו 1" in t
+    assert "לנתן הקישו 4" in t and "לWorker הקישו 3" in t and "למשגיחים הקישו 1" in t and "לכולם הקישו 7" in t
     m.press("4"); m.press("/8/mor1.wav")
     n = Call("0507777777"); n.start()
     t = n.press("1")

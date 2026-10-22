@@ -260,7 +260,7 @@ def run_moreshet_once():
     key = f"moreshet_sent_{now.year}_{now.month}"
     if not claim(key):
         return None
-    base = os.environ.get("PUBLIC_URL", "")
+    base = os.environ.get("PUBLIC_URL", "") or db.get_setting("public_url", "")
     ok, info = send(0, 0, builder=lambda: moreshet.build(now.date(), base), to=[moreshet.EMAIL])
     if ok:
         db.set_setting(key, now.isoformat())

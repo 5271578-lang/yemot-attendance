@@ -29,7 +29,17 @@ DEFAULT_PIN = "1480"            # initial password for every new avrech; he chan
 
 
 @bp.before_request
+def remember_address():
+    """The site's own address, for links in the e-mails (no need to set PUBLIC_URL by hand)."""
+    try:
+        if not db.get_setting("public_url") and request.host_url.startswith("https://"):
+            db.set_setting("public_url", request.host_url.rstrip("/"))
+    except Exception:
+        pass
+
+
 def auth():
+    remember_address()
     a = request.authorization
     if not ADMIN_PASSWORD or not a or a.username != ADMIN_USER or a.password != ADMIN_PASSWORD:
         return Response("Login required" if ADMIN_PASSWORD else "Set ADMIN_PASSWORD to enable the admin panel",
@@ -442,7 +452,7 @@ EMP_FORM = """<form method="post">
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> Shuttle driver</label>
 <select name="moreshet_role" title="Moreshet HaNachal (key 00)"><option value="">Not in Moreshet HaNachal</option>
 {% for k, v in {'mashgiach': 'Moreshet: Mashgiach', 'manager': 'Moreshet: Manager'}.items() %}<option value="{{k}}" {% if e and e.moreshet_role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
-<input name="moreshet_key" placeholder="Moreshet key (3-8)" title="The digit others press to leave him a message" size="12" value="{{ (e.moreshet_key or '') if e else '' }}" pattern="[3-8]?">
+<input name="moreshet_key" placeholder="Moreshet key (3-6, 8, 9)" title="The digit others press to leave him a message (7 = everyone)" size="14" value="{{ (e.moreshet_key or '') if e else '' }}" pattern="[3-689]?">
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
 {% if e %}<label><input type="checkbox" name="active" {% if e.active %}checked{% endif %}> Active</label>{% endif %}
