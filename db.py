@@ -131,6 +131,16 @@ CREATE TABLE IF NOT EXISTS gifts (
     created_at TEXT NOT NULL,
     added_by INTEGER
 );
+CREATE TABLE IF NOT EXISTS moreshet_reports (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    kind TEXT NOT NULL,
+    amount REAL NOT NULL,
+    spent_on TEXT NOT NULL,
+    heb_date TEXT,
+    recording_path TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS trip_signups (
     trip TEXT NOT NULL,
     employee_id INTEGER NOT NULL REFERENCES employees(id),
@@ -164,7 +174,8 @@ MIGRATIONS = {
                   ("joined_on", "TEXT"), ("restored_on", "TEXT"), ("id_number", "TEXT"),
                   ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0"),
                   ("phone2", "TEXT"), ("phone2_mode", "TEXT NOT NULL DEFAULT 'none'"),
-                  ("phone2_calls", "INTEGER NOT NULL DEFAULT 1")],
+                  ("phone2_calls", "INTEGER NOT NULL DEFAULT 1"), ("moreshet_role", "TEXT"), ("moreshet_key", "TEXT")],
+    "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'")],
     "message_recipients": [("announced_at", "TEXT")],
     "tefila_entries": [("added_by", "INTEGER")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),

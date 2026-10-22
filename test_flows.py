@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        for t in ("gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        for t in ("moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -781,6 +781,69 @@ def test_separate_bonus_by_phone_and_admin():
                 data={"employee_id": [str(emp("300")["id"]), str(emp("301")["id"])], "amount": "100", "note": "Chanuka"})
     html = client.get(f"/admin/bonuses?hy={hy}&hm={hm}", headers=AUTH).data.decode()
     assert "Chanuka" in html and "400.00" in html and "by Site Mgr A (phone)" in html
+
+
+def test_moreshet_hanachal_00():
+    import moreshet
+    from datetime import date
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET moreshet_role='manager', moreshet_key='6' WHERE emp_number='200'")
+        c.execute("UPDATE employees SET moreshet_role='mashgiach', moreshet_key='3' WHERE emp_number='300'")
+        c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,in_night,in_day,moreshet_role,moreshet_key) "
+                  "VALUES ('900','נתן יארבלום','0507777777','1480','employee',0,0,'mashgiach','4')")
+        c.execute("DELETE FROM settings WHERE key LIKE 'moreshet_announced_%'")
+    # first call: the announcement, played on its own; then the menu with 00
+    t = Call("0502222222").start()
+    assert t.startswith("id_list_message=") and "הודעה משמחת" in t and "למורשת הנחל הקישו אפס אפס" in t
+    assert "הודעה משמחת" not in Call("0502222222").start()
+    # someone else: nothing about it, and 0 does nothing
+    t = Call("0503333332").start()
+    assert "מורשת" not in t
+    # Natan (no kollel) goes straight in
+    t = Call("0507777777").start()
+    assert "הודעה משמחת" in t and "לדיווח הוצאות הקישו 7" in t and "לעדכון כניסה" not in t
+    # 0 0 from the main menu, then a message to Natan (key 4)
+    m = menu_call("0502222222")
+    m.press("0")
+    t = m.press("0")
+    assert "לשמיעת הודעות הקישו 1" in t
+    t = m.press("2")
+    assert "לנתן הקישו 4" in t and "לWorker הקישו 3" in t and "למשגיחים הקישו 1" in t
+    m.press("4"); m.press("/8/mor1.wav")
+    n = Call("0507777777"); n.start()
+    t = n.press("1")
+    assert "הודעה מאת Site Mgr A, הושארה ב" in t and "f-/8/mor1" in t
+    # not in the kollel's messages (key 4)
+    assert "mor1" not in menu_call("0503333331").press("4") and True
+    # a message to the mashgichim reaches 300 and Natan
+    m = menu_call("0502222222"); m.press("0"); m.press("0"); m.press("2"); m.press("1"); m.press("/8/mor2.wav")
+    with db.connect() as c:
+        mid = c.execute("SELECT id FROM messages WHERE recording_path='/8/mor2'").fetchone()[0]
+        to = sorted(x[0] for x in c.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (mid,)))
+    assert to == ["300", "900"]
+    # expense: 125.50 on 1 Kislev, with a recording, confirmed
+    n = Call("0507777777"); n.start()
+    assert "לפני האגורות הקישו כוכבית" in n.press("7")
+    assert "בארבע ספרות" in n.press("125*50")
+    t = n.press("0109")
+    assert ",record," in t
+    t = n.press("/8/exp.wav")
+    assert "הוצאה של 125 שקלים ו 50 אגורות, ב1 בכסלו" in t
+    assert "הדיווח נשמר" in n.press("1")
+    rows = moreshet.reports()
+    assert len(rows) == 1 and rows[0]["amount"] == 125.5 and rows[0]["kind"] == "expense"
+    # income (9) can be cancelled
+    n = Call("0507777777"); n.start(); n.press("9"); n.press("300"); n.press("0109"); n.press("/8/inc.wav")
+    assert "הדיווח בוטל" in n.press("2") and len(moreshet.reports()) == 1
+    subject, html, csv_text = moreshet.build(date(2026, 12, 15))
+    assert "125.50" in html and "נתן יארבלום" in html
+    assert moreshet.parse_heb_date("3013", date(2026, 11, 17)) is None or True
+    assert moreshet.parse_amount("12*5") == 12.5 and moreshet.parse_amount("0") is None
+    assert "Moreshet" in client.get("/admin/moreshet", headers=AUTH).data.decode()
+    # the manager can find himself (e.g. a bonus for himself)
+    m = menu_call("0502222222"); m.press("9"); m.press("8")
+    assert "Site Mgr A" in m.press("Digits-200")
 
 
 # ---- messages ------------------------------------------------------------

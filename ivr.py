@@ -22,6 +22,7 @@ import hebcal
 import nbs
 import schedule
 import corrections
+import moreshet
 import tefila
 import trips
 from prompts import GROUPS, GROUPS_SHORT, LANGUAGES, WEEKDAYS, say_time, text
@@ -120,8 +121,15 @@ class Reply:
         self.s["data"]["seq"] = self.s["data"].get("seq", 0) + 1
         return f"v{self.s['data']['seq']}"
 
+    def announce(self, txt):
+        """Played on its own before what follows, so it cannot be skipped by pressing a key."""
+        self.pre = getattr(self, "pre", []) + [tts(txt)]
+        return self
+
     def text(self):
         out = []
+        if getattr(self, "pre", None):
+            out.append("id_list_message=" + ".".join(self.pre))
         if self.say_parts and not (self.action or "").startswith("read="):
             out.append("id_list_message=" + self._messages())
         out.append(self.action or "go_to_folder=hangup")
@@ -285,7 +293,7 @@ def unheard(emp_id):
     with db.connect() as c:
         return c.execute("SELECT rc.id, s.name AS sender FROM message_recipients rc JOIN messages m ON m.id=rc.message_id "
                          "JOIN employees s ON s.id=m.sender_id WHERE rc.employee_id=? AND rc.listened_at IS NULL "
-                         "AND rc.announced_at IS NULL ORDER BY m.created_at DESC", (emp_id,)).fetchall()
+                         "AND rc.announced_at IS NULL AND m.channel='kollel' ORDER BY m.created_at DESC", (emp_id,)).fetchall()
 
 
 def menu_or_waiting(r):
@@ -349,6 +357,11 @@ def main_menu(r):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
+    if moreshet.is_member(emp) and not db.get_setting(f"moreshet_announced_{emp['id']}"):
+        db.set_setting(f"moreshet_announced_{emp['id']}", db.now().isoformat())
+        r.announce(r.t("moreshet_announce"))
+    if moreshet.only_member(emp):
+        return moreshet_menu(r)
     txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "6", "9", "*"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
@@ -362,6 +375,9 @@ def main_menu(r):
         rest += ". " + trip["menu"].get(r.lang, trip["menu"]["he"])
         keys.append(trip["key"])
         shown.add(trip["key"])
+    if moreshet.is_member(emp):
+        rest += ". " + r.t("moreshet_menu_line")
+        keys.append("0")
     if is_manager(emp):
         for trip in trips.recent_trips():
             if trip["key"] not in shown:
@@ -376,6 +392,8 @@ def main_choice(r, answer):
     emp = employee(r)
     if emp is None:
         return ask_phone(r)
+    if answer == "0" and moreshet.is_member(emp):
+        return r.ask("moreshet_gate", r.t("moreshet_gate"), allowed=["0"], timeout=4)
     actions = {"1": clock_in, "2": early_exit, "3": shuttle, "4": ext4, "5": fix_start, "6": status,
                "9": settings_menu,
                "*": switch_user}
@@ -399,6 +417,205 @@ def main_choice(r, answer):
         return trip_start(r, trip)
     r.say(r.t("invalid"))
     main_menu(r)
+
+
+# ---- 00: Moreshet HaNachal (moreshet.py) -----------------------------------
+
+@step
+def moreshet_gate(r, answer):
+    if answer == "0" and moreshet.is_member(employee(r)):
+        return moreshet_menu(r)
+    main_menu(r)
+
+
+def _m_unheard(emp_id):
+    with db.connect() as c:
+        return c.execute("SELECT COUNT(*) FROM message_recipients rc JOIN messages m ON m.id=rc.message_id "
+                         "WHERE rc.employee_id=? AND rc.listened_at IS NULL AND m.channel='moreshet'", (emp_id,)).fetchone()[0]
+
+
+def moreshet_menu(r):
+    me = employee(r)
+    if not moreshet.is_member(me):
+        return main_menu(r)
+    n = _m_unheard(me["id"])
+    txt = [r.t("moreshet_title")]
+    if n:
+        txt.append(r.t("moreshet_new", n=n))
+    txt.append(r.t("moreshet_menu"))
+    keys = ["1", "2", "7", "9"]
+    if moreshet.only_member(me):
+        txt.append(r.t("menu_switch"))
+        keys.append("*")
+    else:
+        txt.append(r.t("moreshet_back"))
+    r.ask("moreshet_choice", ". ".join(txt), allowed=keys)
+
+
+@step
+def moreshet_choice(r, answer):
+    me = employee(r)
+    if not moreshet.is_member(me):
+        return main_menu(r)
+    if answer == "1":
+        return m_start_listening(r, me)
+    if answer == "2":
+        return m_send_menu(r)
+    if answer in ("7", "9"):
+        kind = "expense" if answer == "7" else "income"
+        return r.ask("m_amount", r.t("m_amount_" + kind), digits=None, timeout=15, kind=kind)
+    if answer == "*" and moreshet.only_member(me):
+        return switch_user(r)
+    main_menu(r)
+
+
+# -- listen: everything sent to him (to him alone or to a group), in the order it was left
+
+def m_start_listening(r, me):
+    since = (db.now() - timedelta(days=60)).isoformat()
+    with db.connect() as c:
+        ids = [x["id"] for x in c.execute(
+            "SELECT rc.id FROM message_recipients rc JOIN messages m ON m.id=rc.message_id WHERE rc.employee_id=? "
+            "AND m.channel='moreshet' AND (rc.listened_at IS NULL OR m.created_at>=?) ORDER BY m.created_at",
+            (me["id"], since))]
+    if not ids:
+        r.say(r.t("no_messages"))
+        return moreshet_menu(r)
+    r.s["data"]["m_playlist"] = ids
+    m_play(r, 0)
+
+
+def m_play(r, i, header=True):
+    ids = r.s["data"].get("m_playlist", [])
+    if i >= len(ids):
+        r.say(r.t("end_messages"))
+        return moreshet_menu(r)
+    with db.connect() as c:
+        row = c.execute("SELECT rc.*, m.recording_path, m.created_at, s.name AS sender FROM message_recipients rc "
+                        "JOIN messages m ON m.id=rc.message_id JOIN employees s ON s.id=m.sender_id WHERE rc.id=?",
+                        (ids[i],)).fetchone()
+        if row is None or row["employee_id"] != r.s["employee_id"]:
+            return m_play(r, i + 1)
+        c.execute("UPDATE message_recipients SET listened_at=COALESCE(listened_at, ?) WHERE id=?", (db.now().isoformat(), row["id"]))
+    if header:
+        t = db.parse(row["created_at"])
+        y, m, d = hebcal.from_gregorian(t.date())
+        r.say(r.t("m_header", sender=row["sender"], day=d, month=hebcal.month_name(m, y, "he"), time=r.time(t)))
+    r.file(row["recording_path"])
+    r.ask("m_after", r.t("after_msg"), allowed=["1", "2"], i=i)
+
+
+@step
+def m_after(r, answer, i):
+    if answer == "1":
+        return m_play(r, i, header=False)
+    m_play(r, i + 1)
+
+
+# -- leave a message
+
+def m_send_menu(r):
+    me = employee(r)
+    opts = [r.t("m_to_mashgichim"), r.t("m_to_managers")]
+    keys = ["1", "2"]
+    for e in moreshet.members():
+        if e["id"] != me["id"] and e["moreshet_key"] and e["moreshet_key"] not in keys:
+            opts.append(r.t("m_to_person", name=(e["name"] or "").split()[0], digit=e["moreshet_key"]))
+            keys.append(e["moreshet_key"])
+    opts.append(r.t("m_to_all"))
+    keys.append("9")
+    r.ask("m_send_choice", ". ".join(opts), allowed=keys)
+
+
+@step
+def m_send_choice(r, answer):
+    me = employee(r)
+    if not moreshet.is_member(me):
+        return main_menu(r)
+    if answer == "1":
+        target = {"type": "m_mashgichim"}
+    elif answer == "2":
+        target = {"type": "m_managers"}
+    elif answer == "9":
+        target = {"type": "m_all"}
+    else:
+        who = next((e for e in moreshet.members() if e["moreshet_key"] == answer and e["id"] != me["id"]), None)
+        if who is None:
+            return m_send_menu(r)
+        target = {"type": "m_person", "employee_id": who["id"]}
+    if not moreshet.recipients(target, me["id"]):
+        r.say(r.t("no_recipients"))
+        return moreshet_menu(r)
+    file_name = f"mor{db.now().strftime('%Y%m%d%H%M%S')}_{me['id']}"
+    r.record("m_recorded", r.t("record"), file_name, target=target)
+
+
+@step
+def m_recorded(r, answer, target):
+    me = employee(r)
+    if not answer or answer in ("None", "0") or not moreshet.is_member(me):
+        r.say(r.t("empty_recording"))
+        return moreshet_menu(r)
+    rcpts = moreshet.recipients(target, me["id"])
+    if not rcpts:
+        r.say(r.t("no_recipients"))
+        return moreshet_menu(r)
+    t = db.now()
+    with db.connect() as c:
+        msg_id = c.execute(
+            "INSERT INTO messages(sender_id, created_at, heb_date, recipient_type, recipient_label, recording_path, channel) "
+            "VALUES (?,?,?,?,?,?,'moreshet')", (me["id"], t.isoformat(), hebcal.format_date(t.date(), "he"), target["type"],
+                                               moreshet.label(target, rcpts), recording_path(answer))).lastrowid
+        c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)", [(msg_id, e["id"]) for e in rcpts])
+    if NOTIFY_BY_CALL and nbs.enabled():
+        threading.Thread(target=notify, args=(msg_id, False), daemon=True).start()
+    r.say(r.t("saved_to_employees"))
+    moreshet_menu(r)
+
+
+# -- 7 expenses / 9 unusual income: amount, Hebrew date, what for
+
+@step
+def m_amount(r, answer, kind):
+    amount = moreshet.parse_amount(answer)
+    if amount is None:
+        r.say(r.t("m_bad_amount"))
+        return r.ask("m_amount", r.t("m_amount_" + kind), digits=None, timeout=15, kind=kind)
+    r.ask("m_date", r.t("m_date"), digits=4, min_digits=4, timeout=10, kind=kind, amount=amount)
+
+
+@step
+def m_date(r, answer, kind, amount):
+    d = moreshet.parse_heb_date(answer, db.now().date())
+    if d is None:
+        r.say(r.t("m_bad_date"))
+        return r.ask("m_date", r.t("m_date"), digits=4, min_digits=4, timeout=10, kind=kind, amount=amount)
+    file_name = f"mor{kind}{db.now().strftime('%Y%m%d%H%M%S')}_{r.s['employee_id']}"
+    r.record("m_report_recorded", r.t("m_what_for"), file_name, kind=kind, amount=amount, day=d.isoformat())
+
+
+@step
+def m_report_recorded(r, answer, kind, amount, day):
+    if not answer or answer in ("None", "0"):
+        r.say(r.t("empty_recording"))
+        return moreshet_menu(r)
+    d = datetime.fromisoformat(day).date()
+    y, m, dd = hebcal.from_gregorian(d)
+    shek, ag = int(amount), round((amount - int(amount)) * 100)
+    amt = r.t("m_shekels", n=shek) + (r.t("m_agorot", n=ag) if ag else "")
+    r.ask("m_report_ok", r.t("m_confirm_" + kind, amount=amt, day=dd, month=hebcal.month_name(m, y, "he")),
+          allowed=["1", "2"], kind=kind, amount=amount, day=day, rec=recording_path(answer))
+
+
+@step
+def m_report_ok(r, answer, kind, amount, day, rec):
+    me = employee(r)
+    if answer != "1" or not moreshet.is_member(me):
+        r.say(r.t("m_cancelled"))
+        return moreshet_menu(r)
+    moreshet.save_report(me["id"], kind, amount, datetime.fromisoformat(day).date(), rec)
+    r.say(r.t("m_saved"))
+    moreshet_menu(r)
 
 
 # ---- 8: Mivtza Tefila B'Koach (tefila.py) --------------------------------
@@ -1408,7 +1625,7 @@ def start_listening(r, emp):
     with db.connect() as c:
         rows = c.execute(
             "SELECT r.id FROM message_recipients r JOIN messages m ON m.id=r.message_id "
-            "WHERE r.employee_id=? AND (r.listened_at IS NULL OR m.created_at>=?) "
+            "WHERE r.employee_id=? AND m.channel='kollel' AND (r.listened_at IS NULL OR m.created_at>=?) "
             "ORDER BY (r.listened_at IS NOT NULL), m.created_at DESC", (emp["id"], since)).fetchall()
     ids = [x["id"] for x in rows]
     if not ids:
@@ -1455,7 +1672,7 @@ def after_message(r, answer, i):
 def start_sent(r, emp):
     since = (db.now() - timedelta(days=MESSAGE_HISTORY_DAYS)).isoformat()
     with db.connect() as c:
-        ids = [x["id"] for x in c.execute("SELECT id FROM messages WHERE sender_id=? AND created_at>=? "
+        ids = [x["id"] for x in c.execute("SELECT id FROM messages WHERE sender_id=? AND created_at>=? AND channel='kollel' "
                                           "ORDER BY created_at DESC", (emp["id"], since))]
     if not ids:
         r.say(r.t("no_sent"))
@@ -1799,9 +2016,9 @@ def present_now(people, now=None):
 def manager_scope(sender, everyone=None):
     """Who a manager can send to / look up: everyone for the tech manager; for an on-site manager his
     shift in Kollel Chatzos (all of it if he has no shift) and Kollel Horaah if he manages it."""
-    if everyone is None:
+    if everyone is None:                       # lookups (status, here now, bonus, raffle...): the manager himself too
         with db.connect() as c:
-            everyone = c.execute("SELECT * FROM employees WHERE active=1 AND id<>?", (sender["id"],)).fetchall()
+            everyone = c.execute("SELECT * FROM employees WHERE active=1").fetchall()
     if sender["role"] == "tech_manager":
         return list(everyone)
     scope = []
@@ -1871,7 +2088,7 @@ def notify(msg_id, by_tzintuk=False):
     """Tell each recipient a new message is waiting: a tzintuk (missed-call ring) for a group or everyone,
     a short voice call for one person or for the managers. Never SMS."""
     with db.connect() as c:
-        rows = c.execute("SELECT rc.id, e.name, e.phone, e.phone2, e.phone2_mode, e.language, s.name AS sender "
+        rows = c.execute("SELECT rc.id, e.name, e.phone, e.phone2, e.phone2_mode, e.language, s.name AS sender, m.channel "
                          "FROM message_recipients rc "
                          "JOIN employees e ON e.id=rc.employee_id JOIN messages m ON m.id=rc.message_id "
                          "JOIN employees s ON s.id=m.sender_id WHERE rc.message_id=?", (msg_id,)).fetchall()
@@ -1882,7 +2099,8 @@ def notify(msg_id, by_tzintuk=False):
     if by_tzintuk:
         ok, info = nbs.run_tzintuk([x["phone"] for x in callable_rows] + [x["phone2"] for x in extra])
     else:
-        texts = {x["phone"]: text(x["language"], "notify_call_text", name=x["name"], sender=x["sender"])
+        texts = {x["phone"]: text(x["language"], "notify_call_text_moreshet" if x["channel"] == "moreshet" else "notify_call_text",
+                                  name=x["name"], sender=x["sender"])
                  for x in callable_rows}
         texts.update({x["phone2"]: texts[x["phone"]] for x in extra})
         ok, info = nbs.run_tts_calls(texts)

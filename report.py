@@ -179,8 +179,10 @@ def send_day(hy, hm):
     return send(hy, hm, builder=lambda: build_day(hy, hm))
 
 
-def send(hy, hm, until=None, builder=None):
+def send(hy, hm, until=None, builder=None, to=None):
     s = settings()
+    if to:
+        s["to"] = to
     if not enabled():
         return False, "REPORT_EMAIL, SMTP_USER and SMTP_PASSWORD are not set"
     subject, html, csv_text = builder() if builder else build(hy, hm, until)
@@ -247,9 +249,30 @@ def run_day_once():
     return ok
 
 
+def run_moreshet_once():
+    """On the 15th of every Gregorian month: Moreshet HaNachal expenses and income, only to MORESHET_EMAIL."""
+    import moreshet
+    if not enabled() or not moreshet.EMAIL:
+        return None
+    now = db.now()
+    if not moreshet.due(now, REPORT_HOUR):
+        return None
+    key = f"moreshet_sent_{now.year}_{now.month}"
+    if not claim(key):
+        return None
+    base = os.environ.get("PUBLIC_URL", "")
+    ok, info = send(0, 0, builder=lambda: moreshet.build(now.date(), base), to=[moreshet.EMAIL])
+    if ok:
+        db.set_setting(key, now.isoformat())
+    else:
+        release(key, info)
+    return ok
+
+
 def run_once():
     """Send this month's report if due and not sent yet. Safe with several workers."""
     run_day_once()
+    run_moreshet_once()
     if not enabled():
         return None
     when = due(db.now())

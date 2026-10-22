@@ -13,6 +13,7 @@ import nbs
 import schedule
 import report
 import importer
+import moreshet
 import tefila
 import trips
 import base64
@@ -47,7 +48,7 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Kollel Chatzos</a><a href="{{ url_for('admin.day_payroll') }}">Kollel Horaah</a>
 <a href="{{ url_for('admin.employees', k='night') }}">Chatzos avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Horaah avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
-<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a><a href="{{ url_for('admin.gifts_page') }}">Bonuses</a></nav>
+<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a><a href="{{ url_for('admin.gifts_page') }}">Bonuses</a><a href="{{ url_for('admin.moreshet_page') }}">Moreshet HaNachal</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -439,6 +440,9 @@ EMP_FORM = """<form method="post">
 <label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> Kollel Chatzos</label>
 <label><input type="checkbox" name="in_day" {% if (not e and form_day) or (e and e.in_day) %}checked{% endif %}> Kollel Horaah</label>
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> Shuttle driver</label>
+<select name="moreshet_role" title="Moreshet HaNachal (key 00)"><option value="">Not in Moreshet HaNachal</option>
+{% for k, v in {'mashgiach': 'Moreshet: Mashgiach', 'manager': 'Moreshet: Manager'}.items() %}<option value="{{k}}" {% if e and e.moreshet_role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
+<input name="moreshet_key" placeholder="Moreshet key (3-8)" title="The digit others press to leave him a message" size="12" value="{{ (e.moreshet_key or '') if e else '' }}" pattern="[3-8]?">
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
 {% if e %}<label><input type="checkbox" name="active" {% if e.active %}checked{% endif %}> Active</label>{% endif %}
@@ -456,7 +460,9 @@ def emp_values(form):
             form.get("id_number", "").strip() or None,
             1 if form.get("in_night") else 0, 1 if form.get("in_day") else 0,
             form.get("phone2", "").strip() or None,
-            form.get("phone2_mode") if form.get("phone2_mode") in ("none", "shuttle", "all") else "none")
+            form.get("phone2_mode") if form.get("phone2_mode") in ("none", "shuttle", "all") else "none",
+            form.get("moreshet_role") if form.get("moreshet_role") in moreshet.ROLES else None,
+            form.get("moreshet_key", "").strip() or None)
 
 
 def phone_taken(phone, eid=None):
@@ -478,8 +484,8 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,joined_on) "
-                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,moreshet_role,moreshet_key,joined_on) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees", k="day" if request.form.get("in_day") and not request.form.get("in_night") else kollel))
         except Exception as ex:                       # duplicate number etc.
@@ -529,7 +535,8 @@ def edit_employee(eid):
         else:
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
-                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, active=? WHERE id=?",
+                          "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, "
+                          "moreshet_role=?, moreshet_key=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees", k="night" if request.form.get("in_night") else
                                     "day" if request.form.get("in_day") else "none"))
@@ -546,9 +553,9 @@ def messages():
     since = (db.now() - timedelta(days=int(request.args.get("days", 30)))).isoformat()
     with db.connect() as c:
         msgs = c.execute("SELECT m.*, e.name sender FROM messages m JOIN employees e ON e.id=m.sender_id "
-                         "WHERE m.created_at>=? ORDER BY m.created_at DESC", (since,)).fetchall()
+                         "WHERE m.created_at>=? AND m.channel='kollel' ORDER BY m.created_at DESC", (since,)).fetchall()
         rcpts = c.execute("SELECT r.*, e.name FROM message_recipients r JOIN employees e ON e.id=r.employee_id "
-                          "JOIN messages m ON m.id=r.message_id WHERE m.created_at>=?", (since,)).fetchall()
+                          "JOIN messages m ON m.id=r.message_id WHERE m.created_at>=? AND m.channel='kollel'", (since,)).fetchall()
     by_msg = {}
     for r in rcpts:
         by_msg.setdefault(r["message_id"], []).append(r)
@@ -567,6 +574,45 @@ def recording(mid):
     with db.connect() as c:
         m = c.execute("SELECT recording_path FROM messages WHERE id=?", (mid,)).fetchone()
     data = nbs.download_recording(m["recording_path"]) if m else None
+    if not data:
+        return Response("Recording not available", 404)
+    return Response(data, mimetype="audio/wav")
+
+
+# ---- Moreshet HaNachal (key 00) ---------------------------------------------
+
+@bp.route("/moreshet")
+def moreshet_page():
+    people = moreshet.members()
+    rows = list(reversed(moreshet.reports()))
+    with db.connect() as c:
+        msgs = c.execute("SELECT m.*, e.name sender FROM messages m JOIN employees e ON e.id=m.sender_id "
+                         "WHERE m.channel='moreshet' ORDER BY m.created_at DESC LIMIT 100").fetchall()
+    body = """<h1>Moreshet HaNachal</h1>
+<div class="box"><b>Who</b> (key 00 - only they hear it; someone in no kollel goes straight to it)
+<table><tr><th>Name</th><th>Role</th><th>Key for a message to him</th><th>Phone</th><th></th></tr>
+{% for e in people %}<tr><td>{{ e.name }}</td><td>{{ roles[e.moreshet_role] }}</td><td>{{ e.moreshet_key or '' }}</td><td>{{ e.phone or '' }}</td>
+<td><a href="{{ url_for('admin.edit_employee', eid=e.id) }}">edit</a></td></tr>{% else %}<tr><td colspan="5" class="warn">Nobody yet</td></tr>{% endfor %}</table>
+<p class="muted">To add someone: Employees → edit → "Moreshet: Mashgiach / Manager" and his key. Someone who is not in the kollels:
+add him on the employees page, untick both kollels, and choose the Moreshet role.</p></div>
+<div class="box"><b>Expenses and unusual income</b> (keys 7 and 9). E-mailed on the 15th of every month to {{ email }}.
+<table><tr><th>Reported</th><th>Who</th><th>Kind</th><th>Date</th><th class="right">Amount</th><th>What for</th></tr>
+{% for x in rows %}<tr><td>{{ fmt(x.created_at) }}</td><td>{{ x.name }}</td><td>{{ 'Expense' if x.kind == 'expense' else 'Income' }}</td>
+<td dir="rtl">{{ x.heb_date }}</td><td class="right">{{ '%.2f'|format(x.amount) }}</td>
+<td>{% if x.recording_path %}<audio controls preload="none" src="{{ url_for('admin.moreshet_recording', rid=x.id) }}"></audio>{% endif %}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No reports yet.</td></tr>{% endfor %}</table></div>
+<div class="box"><b>Messages</b><table><tr><th>When</th><th>From</th><th>To</th><th></th></tr>
+{% for m in msgs %}<tr><td>{{ fmt(m.created_at) }}</td><td>{{ m.sender }}</td><td dir="rtl">{{ m.recipient_label }}</td>
+<td><audio controls preload="none" src="{{ url_for('admin.recording', mid=m.id) }}"></audio></td></tr>
+{% else %}<tr><td colspan="4" class="muted">No messages.</td></tr>{% endfor %}</table></div>"""
+    return page(body, people=people, rows=rows, msgs=msgs, fmt=fmt, roles=moreshet.ROLES, email=moreshet.EMAIL)
+
+
+@bp.route("/moreshet/recording/<int:rid>")
+def moreshet_recording(rid):
+    with db.connect() as c:
+        m = c.execute("SELECT recording_path FROM moreshet_reports WHERE id=?", (rid,)).fetchone()
+    data = nbs.download_recording(m["recording_path"]) if m and m["recording_path"] else None
     if not data:
         return Response("Recording not available", 404)
     return Response(data, mimetype="audio/wav")

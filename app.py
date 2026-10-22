@@ -22,6 +22,8 @@ from ivr import bp as ivr_bp  # noqa: E402
 import report  # noqa: E402
 
 db.init_db()
+import moreshet  # noqa: E402
+moreshet.assign_defaults()
 if os.environ.get("DISABLE_REPORT_THREAD") != "1":
     report.start_background()
 
