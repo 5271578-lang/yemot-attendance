@@ -28,7 +28,6 @@ LANGS = {"he": "Hebrew", "en": "English", "yi": "Yiddish"}
 DEFAULT_PIN = "1480"            # initial password for every new avrech; he changes it with 9 -> 2
 
 
-@bp.before_request
 def remember_address():
     """The site's own address, for links in the e-mails (no need to set PUBLIC_URL by hand)."""
     try:
@@ -38,6 +37,7 @@ def remember_address():
         pass
 
 
+@bp.before_request
 def auth():
     remember_address()
     a = request.authorization
