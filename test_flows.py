@@ -880,7 +880,7 @@ def test_back_after_a_short_exit_same_night():
 
 
 def test_night_the_clock_goes_back():
-    from datetime import timezone, timedelta as td
+    from datetime import date, timezone, timedelta as td
     seed()
     w = schedule.window(schedule.session_date(datetime(2026, 10, 25, 3, 0, tzinfo=db.TZ)))
     assert w[0].utcoffset() == td(hours=2) and w[0].hour == 2 and w[0].minute == 30
@@ -894,6 +894,13 @@ def test_night_the_clock_goes_back():
     assert a["meron"] == 1 and rec.utcoffset() == td(hours=2) and rec.strftime("%H:%M") == "02:25"
     p = pay_of("301", schedule.session_date(rec))
     assert p["session"] == 300 and p["bonus"] == 30                   # a normal 5-hour night
+    # the clock goes forward (Friday 26/3/2027, 2:00 -> 3:00): shuttle 0:45-1:25, kollel 3:30-7:30 on the new clock
+    d = date(2027, 3, 26)
+    st, en = schedule.window(d)
+    assert st.astimezone(db.TZ).strftime("%H:%M") == "03:30" and (en - st) == td(hours=4)
+    a_, b_ = schedule.shuttle_window(datetime(2027, 3, 26, 1, 0, tzinfo=db.TZ))
+    assert a_.astimezone(db.TZ).strftime("%H:%M") == "00:45" and b_.astimezone(db.TZ).strftime("%H:%M") == "01:25"
+    assert schedule.meron_recorded_in(d).astimezone(db.TZ).strftime("%H:%M") == "03:25"
 
 
 # ---- messages ------------------------------------------------------------

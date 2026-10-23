@@ -68,25 +68,31 @@ def bhz_range_of(d):
     return None
 
 
-def _fall_back(d):
-    """The fixed winter offset on the night the clock goes back (Israel: last Sunday of October, 2:00 -> 1:00),
-    else None. That night every time is by the new (winter) clock: hour 1 comes twice, and it is the second one -
-    the shuttle window 0:45-1:25 opens at the first 1:45 and closes at the second 1:25."""
+def _clock_change(d):
+    """The fixed offset that the night's times are counted by, on a night the clock changes (else None).
+    Going back (end of October, 2:00 -> 1:00): everything by the new winter clock - hour 1 comes twice and it is
+    the second one, so the shuttle opens at the first 1:45 (= 0:45 winter) and closes at the second 1:25.
+    Going forward (end of March, 2:00 -> 3:00): everything as on a winter night by the old clock - the shuttle
+    at 0:45-1:25, the kollel starts at 2:30 winter = 3:30 on the new clock - but it ends at 7:30 on the new clock,
+    so that night is an hour shorter."""
     before = datetime.combine(d, time(0, 0), tzinfo=db.TZ).utcoffset()
     after = datetime.combine(d, time(12, 0), tzinfo=db.TZ).utcoffset()
-    return timezone(after) if after < before else None
+    if after < before:
+        return timezone(after)
+    if after > before:
+        return timezone(before)
+    return None
 
 
 def _at(d, t):
-    """Clock time `t` of night `d` (on the night the clock goes back: by the winter clock)."""
-    tz = _fall_back(d)
-    return datetime.combine(d, t, tzinfo=tz or db.TZ)
+    """Clock time `t` of night `d` (on the night the clock changes: see _clock_change)."""
+    return datetime.combine(d, t, tzinfo=_clock_change(d) or db.TZ)
 
 
 def window(d):
     """(start, end) datetimes of the session on morning `d`."""
     start = BHZ_START if bhz_range_of(d) else REGULAR_START
-    return _at(d, start), _at(d, END)
+    return _at(d, start), datetime.combine(d, END, tzinfo=db.TZ)       # the end: always by the clock of that morning
 
 
 def is_rider(emp):
