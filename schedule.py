@@ -329,14 +329,35 @@ WHOLE_NIGHT_EXIT_GRACE = 10   # leaving from 7:20 still counts as a whole night
 NO_DEDUCT_EXIT_GRACE = 5      # leaving from 7:25: the missing minutes are not deducted
 
 
+SHORT_EXIT_MINUTES = 25        # going out in the middle and back within this: as if he did not go out
+
+
+def intervals(records, d):
+    """[(in, out)] of one night, with short exits (up to SHORT_EXIT_MINUTES) joined, and the long exits count."""
+    end = window(d)[1]
+    spans = []
+    for r in sorted(records, key=lambda x: db.parse(x["clock_in"])):
+        cin = db.parse(r["clock_in"])
+        cout = db.parse(r["clock_out"]) if r["clock_out"] else end
+        spans.append([cin, max(cout, cin)])
+    joined, long_exits = [], 0
+    for cin, cout in spans:
+        if joined and cin - joined[-1][1] <= timedelta(minutes=SHORT_EXIT_MINUTES):
+            joined[-1][1] = max(joined[-1][1], cout)
+        else:
+            if joined:
+                long_exits += 1
+            joined.append([cin, cout])
+    return joined, long_exits
+
+
 def present_minutes(records, d):
-    """Minutes present inside the kollel hours (2:30-7:30, bein hazmanim 3:30-7:30), and the session length."""
+    """Minutes present inside the kollel hours (2:30-7:30, bein hazmanim 3:30-7:30), and the session length.
+    A short exit in the middle (up to 25 minutes) is not deducted."""
     start, end = window(d)
     session_min = (end - start).total_seconds() / 60
     present = 0.0
-    for r in records:
-        cin = db.parse(r["clock_in"])
-        cout = db.parse(r["clock_out"]) if r["clock_out"] else end
+    for cin, cout in intervals(records, d)[0]:
         if end - timedelta(minutes=NO_DEDUCT_EXIT_GRACE) <= cout < end:
             cout = end
         lo, hi = max(cin, start), min(cout, end)
@@ -363,7 +384,9 @@ def night_pay(emp, records, d):
     meron = any(_get(r, "meron") for r in records)
     return {"date": d, "minutes": round(present), "session": round(session_min), "base": base, "bonus": bonus,
             "total": round(base + bonus, 2), "bhz": bool(bhz_range_of(d)),
-            "whole": bonus >= KEEP_TIME_BONUS and last_out >= end - timedelta(minutes=WHOLE_NIGHT_EXIT_GRACE), "early": first_in < start,
+            "whole": bonus >= KEEP_TIME_BONUS and last_out >= end - timedelta(minutes=WHOLE_NIGHT_EXIT_GRACE)
+                     and intervals(records, d)[1] == 0,          # out for more than 25 minutes: not a whole night
+            "early": first_in < start,
             "meron": meron, "meron_pay": MERON_BONUS if meron else 0}
 
 

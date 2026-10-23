@@ -861,7 +861,13 @@ def test_back_after_a_short_exit_same_night():
     at(2026, 11, 17, 5, 0)
     assert "כבר" in menu_call("0503333334").press("1")                  # inside again: already in
     p = pay_of("303", a[0]["clock_in"] and schedule.session_date(db.parse(a[0]["clock_in"])))
-    assert p["minutes"] == 80 + 180                                   # 2:40-4:00 and 4:30-7:30
+    assert p["minutes"] == 80 + 180 and not p["whole"]               # out 30 minutes: deducted, not a whole night
+    # out 20 minutes: as if he did not go out
+    at(2026, 11, 19, 2, 20); menu_call("0503333331").press("1")
+    at(2026, 11, 19, 4, 0); menu_call("0503333331").press("2")
+    at(2026, 11, 19, 4, 20); menu_call("0503333331").press("1")
+    p = pay_of("300", schedule.session_date(db.parse(attendance("300")[-1]["clock_in"])))
+    assert p["minutes"] == 300 and p["whole"] and p["base"] == 80
     # a rider coming back is recorded at the real time, without Meron
     at(2026, 11, 18, 1, 0)
     menu_call("0503333332").press("1")                                # 301 (rider): 2:25 + Meron
