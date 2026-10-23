@@ -520,7 +520,7 @@ def m_send_menu(r):
     keys = ["1", "2"]
     for e in moreshet.members():
         if e["id"] != me["id"] and e["moreshet_key"] and e["moreshet_key"] not in keys + ["7"]:
-            opts.append(r.t("m_to_person", name=(e["name"] or "").split()[0], digit=e["moreshet_key"]))
+            opts.append(r.t("m_to_person", name=moreshet.spoken_name(e), digit=e["moreshet_key"]))
             keys.append(e["moreshet_key"])
     opts.append(r.t("m_to_all"))
     keys.append("7")
@@ -817,15 +817,23 @@ def clock_in(r):
     with db.connect() as c:
         mine = records_of_night(c, emp["id"], tonight, program)
         if mine:
-            return r.say(r.t("already_in", time=r.time(db.parse(mine[0]["clock_in"])))).hangup()
-        older = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program=? AND exit_confirmed=0 "
-                          "ORDER BY clock_in DESC", (emp["id"], program)).fetchall()
+            last = mine[-1]
+            if not last["clock_out"] or db.parse(last["clock_out"]) > t0:       # still inside
+                return r.say(r.t("already_in", time=r.time(db.parse(mine[0]["clock_in"])))).hangup()
+            # he went out in the middle and came back: a second entry the same night (his exit is known)
+            c.execute("UPDATE attendance SET exit_confirmed=1 WHERE id=?", (last["id"],))
+            reentry = True
+        else:
+            reentry = False
+        older = [] if reentry else c.execute(
+            "SELECT * FROM attendance WHERE employee_id=? AND program=? AND exit_confirmed=0 "
+            "ORDER BY clock_in DESC", (emp["id"], program)).fetchall()
         older = [x for x in older if schedule.session_date(db.parse(x["clock_in"])) < tonight]
         for x in older[1:]:                                    # only the latest night is asked about
             c.execute("UPDATE attendance SET exit_confirmed=1 WHERE id=?", (x["id"],))
     if older:
         return ask_prev_exit(r, older[0]["id"])
-    finish_clock_in(r)
+    finish_clock_in(r, reentry=reentry)
 
 
 def bhz_notice(r):
@@ -878,12 +886,13 @@ def set_exit(rid, t):
         c.execute("UPDATE attendance SET clock_out=?, exit_confirmed=1 WHERE id=?", (t.isoformat(), rid))
 
 
-def finish_clock_in(r):
-    """Clock in at the time the call started, not when the key was pressed."""
+def finish_clock_in(r, reentry=False):
+    """Clock in at the time the call started, not when the key was pressed.
+    reentry: back after going out in the middle - recorded at the real time (no Meron rule)."""
     emp, t0 = employee(r), call_start(r)
     program = r.s["data"].get("program", "night")
     y, m, d = hebcal.from_gregorian(schedule.session_date(t0))
-    rec, meron = schedule.recorded_clock_in(emp, t0) if program == "night" else (t0, False)
+    rec, meron = schedule.recorded_clock_in(emp, t0) if program == "night" and not reentry else (t0, False)
     with db.connect() as c:
         c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, meron, actual_in, program) "
                   "VALUES (?,?,?,?,?,?,?,?)", (emp["id"], rec.isoformat(), y, m, d, int(meron), t0.isoformat(), program))
@@ -902,7 +911,7 @@ def early_exit(r):
     program = schedule.program_now(emp, t) or "night"
     with db.connect() as c:
         mine = records_of_night(c, emp["id"], schedule.session_date(t), program)
-        if not mine:
+        if not mine or (mine[-1]["clock_out"] and db.parse(mine[-1]["clock_out"]) <= t):   # not inside now
             r.say(r.t("not_in"))
             return main_menu(r)
         c.execute("UPDATE attendance SET clock_out=?, early_exit=1, exit_confirmed=0 WHERE id=?",

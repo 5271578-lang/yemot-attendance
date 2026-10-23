@@ -453,6 +453,7 @@ EMP_FORM = """<form method="post">
 <select name="moreshet_role" title="Moreshet HaNachal (key 00)"><option value="">Not in Moreshet HaNachal</option>
 {% for k, v in {'mashgiach': 'Moreshet: Mashgiach', 'manager': 'Moreshet: Manager'}.items() %}<option value="{{k}}" {% if e and e.moreshet_role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="moreshet_key" placeholder="Moreshet key (3-6, 8, 9)" title="The digit others press to leave him a message (7 = everyone)" size="14" value="{{ (e.moreshet_key or '') if e else '' }}" pattern="[3-689]?">
+<input name="moreshet_name" placeholder="Name said in Moreshet (e.g. נפתלי)" size="22" value="{{ (e.moreshet_name or '') if e else '' }}">
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shuttle_calls" type="number" min="1" max="5" placeholder="Shuttle calls (1-5)" title="Shuttle alert calls - the person sets this on the phone" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
 {% if e %}<label><input type="checkbox" name="active" {% if e.active %}checked{% endif %}> Active</label>{% endif %}
@@ -472,7 +473,8 @@ def emp_values(form):
             form.get("phone2", "").strip() or None,
             form.get("phone2_mode") if form.get("phone2_mode") in ("none", "shuttle", "all") else "none",
             form.get("moreshet_role") if form.get("moreshet_role") in moreshet.ROLES else None,
-            form.get("moreshet_key", "").strip() or None)
+            form.get("moreshet_key", "").strip() or None,
+            form.get("moreshet_name", "").strip() or None)
 
 
 def phone_taken(phone, eid=None):
@@ -494,8 +496,8 @@ def employees():
                 raise ValueError("This phone number already belongs to another employee")
             with db.connect() as c:
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
-                          "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,moreshet_role,moreshet_key,joined_on) "
-                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,moreshet_role,moreshet_key,moreshet_name,joined_on) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           emp_values(request.form) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees", k="day" if request.form.get("in_day") and not request.form.get("in_night") else kollel))
         except Exception as ex:                       # duplicate number etc.
@@ -546,7 +548,7 @@ def edit_employee(eid):
             with db.connect() as c:
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
                           "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, "
-                          "moreshet_role=?, moreshet_key=?, active=? WHERE id=?",
+                          "moreshet_role=?, moreshet_key=?, moreshet_name=?, active=? WHERE id=?",
                           emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
             return redirect(url_for("admin.employees", k="night" if request.form.get("in_night") else
                                     "day" if request.form.get("in_day") else "none"))
@@ -600,9 +602,9 @@ def moreshet_page():
                          "WHERE m.channel='moreshet' ORDER BY m.created_at DESC LIMIT 100").fetchall()
     body = """<h1>Moreshet HaNachal</h1>
 <div class="box"><b>Who</b> (key 00 - only they hear it; someone in no kollel goes straight to it)
-<table><tr><th>Name</th><th>Role</th><th>Key for a message to him</th><th>Phone</th><th></th></tr>
-{% for e in people %}<tr><td>{{ e.name }}</td><td>{{ roles[e.moreshet_role] }}</td><td>{{ e.moreshet_key or '' }}</td><td>{{ e.phone or '' }}</td>
-<td><a href="{{ url_for('admin.edit_employee', eid=e.id) }}">edit</a></td></tr>{% else %}<tr><td colspan="5" class="warn">Nobody yet</td></tr>{% endfor %}</table>
+<table><tr><th>Name</th><th>Role</th><th>Key for a message to him</th><th>Said as</th><th>Phone</th><th></th></tr>
+{% for e in people %}<tr><td>{{ e.name }}</td><td>{{ roles[e.moreshet_role] }}</td><td>{{ e.moreshet_key or '' }}</td><td>{{ said(e) }}</td><td>{{ e.phone or '' }}</td>
+<td><a href="{{ url_for('admin.edit_employee', eid=e.id) }}">edit</a></td></tr>{% else %}<tr><td colspan="6" class="warn">Nobody yet</td></tr>{% endfor %}</table>
 <p class="muted">To add someone: Employees → edit → "Moreshet: Mashgiach / Manager" and his key. Someone who is not in the kollels:
 add him on the employees page, untick both kollels, and choose the Moreshet role.</p></div>
 <div class="box"><b>Expenses and unusual income</b> (keys 7 and 9). E-mailed on the 15th of every month to {{ email }}.
@@ -615,7 +617,8 @@ add him on the employees page, untick both kollels, and choose the Moreshet role
 {% for m in msgs %}<tr><td>{{ fmt(m.created_at) }}</td><td>{{ m.sender }}</td><td dir="rtl">{{ m.recipient_label }}</td>
 <td><audio controls preload="none" src="{{ url_for('admin.recording', mid=m.id) }}"></audio></td></tr>
 {% else %}<tr><td colspan="4" class="muted">No messages.</td></tr>{% endfor %}</table></div>"""
-    return page(body, people=people, rows=rows, msgs=msgs, fmt=fmt, roles=moreshet.ROLES, email=moreshet.EMAIL)
+    return page(body, people=people, rows=rows, msgs=msgs, fmt=fmt, roles=moreshet.ROLES, email=moreshet.EMAIL,
+                said=moreshet.spoken_name)
 
 
 @bp.route("/moreshet/recording/<int:rid>")

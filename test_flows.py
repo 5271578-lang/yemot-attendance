@@ -809,7 +809,7 @@ def test_moreshet_hanachal_00():
     t = m.press("0")
     assert "לשמיעת הודעות הקישו 1" in t
     t = m.press("2")
-    assert "לנתן הקישו 4" in t and "לWorker הקישו 3" in t and "למשגיחים הקישו 1" in t and "לכולם הקישו 7" in t
+    assert "לנתן הקישו 4" in t and "לנפתלי הקישו 3" in t and "למשגיחים הקישו 1" in t and "לכולם הקישו 7" in t and "להרב" not in t
     m.press("4"); m.press("/8/mor1.wav")
     n = Call("0507777777"); n.start()
     t = n.press("1")
@@ -841,9 +841,36 @@ def test_moreshet_hanachal_00():
     assert moreshet.parse_heb_date("3013", date(2026, 11, 17)) is None or True
     assert moreshet.parse_amount("12*5") == 12.5 and moreshet.parse_amount("0") is None
     assert "Moreshet" in client.get("/admin/moreshet", headers=AUTH).data.decode()
+    assert moreshet.spoken_name({"name": "הרב משה פרץ", "moreshet_name": None, "moreshet_key": "8"}) == "משה"
     # the manager can find himself (e.g. a bonus for himself)
     m = menu_call("0502222222"); m.press("9"); m.press("8")
     assert "Site Mgr A" in m.press("Digits-200")
+
+
+def test_back_after_a_short_exit_same_night():
+    seed()
+    at(2026, 11, 17, 2, 40)
+    menu_call("0503333334").press("1")                                # 303 in at 2:40
+    at(2026, 11, 17, 4, 0)
+    menu_call("0503333334").press("2")                                # out at 4:00
+    at(2026, 11, 17, 4, 30)
+    t = menu_call("0503333334").press("1")                            # back at 4:30
+    assert "נרשמה לשעה 4 ו 30 דקות" in t
+    a = attendance("303")
+    assert len(a) == 2 and a[0]["exit_confirmed"] == 1
+    at(2026, 11, 17, 5, 0)
+    assert "כבר" in menu_call("0503333334").press("1")                  # inside again: already in
+    p = pay_of("303", a[0]["clock_in"] and schedule.session_date(db.parse(a[0]["clock_in"])))
+    assert p["minutes"] == 80 + 180                                   # 2:40-4:00 and 4:30-7:30
+    # a rider coming back is recorded at the real time, without Meron
+    at(2026, 11, 18, 1, 0)
+    menu_call("0503333332").press("1")                                # 301 (rider): 2:25 + Meron
+    at(2026, 11, 18, 4, 0)
+    menu_call("0503333332").press("2")
+    at(2026, 11, 18, 4, 30)
+    menu_call("0503333332").press("1")
+    a = attendance("301")
+    assert db.parse(a[-1]["clock_in"]).strftime("%H:%M") == "04:30" and a[-1]["meron"] == 0 and a[0]["meron"] == 1
 
 
 # ---- messages ------------------------------------------------------------

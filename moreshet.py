@@ -49,6 +49,21 @@ def assign_defaults():
     return found
 
 
+TITLES = {"הרב", "רבי", "ר", "המשגיח", "משגיח", "מנהל", "המנהל", "הר\"ר", "הרה\"ג", "הגאון", "רב"}
+DEFAULT_NAMES = {"3": "נפתלי", "4": "נתן", "5": "שמחה", "6": "ישראל"}
+
+
+def spoken_name(e):
+    """The name said in the menu ("לנפתלי הקישו 3"): the name set on the admin page, else the usual one for
+    his key, else his first name without a title."""
+    if e["moreshet_name"]:
+        return e["moreshet_name"]
+    if e["moreshet_key"] in DEFAULT_NAMES:
+        return DEFAULT_NAMES[e["moreshet_key"]]
+    words = [w for w in _words(e["name"]) if w not in TITLES]
+    return words[0] if words else e["name"]
+
+
 def is_member(emp):
     return bool(emp is not None and emp["active"] and (emp["moreshet_role"] or "") in ROLES)
 
