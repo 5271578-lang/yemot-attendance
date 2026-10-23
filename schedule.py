@@ -2,7 +2,7 @@
 
 Times and amounts are here so they are easy to change.
 """
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import db
 import hebcal
@@ -22,6 +22,11 @@ SHUTTLE_WINDOW = (time(0, 45), time(1, 25))        # key 3 (driver) works only i
 SHUTTLE_WINDOW_BHZ = (time(1, 45), time(2, 25))    # bein hazmanim: the shuttle leaves at 2:00
 BHZ_NOTICE_OTHERS_UNTIL = time(2, 30)   # in bein hazmanim, non-riders clocking in before this hear the notice
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
+# One-off nights that start at another time: {session morning: (hour, minute, fold)}. fold=1 = the second time
+# that hour comes, on the night the clock goes back. The openings, the shuttle window and the Meron 2:25 move with it.
+SPECIAL_STARTS = {
+    date(2026, 10, 25): (1, 0, 1),   # Motzaei Shabbat Noach: 2:00 summer time = 1:00 winter time
+}
 UMAN_NIGHTS_EACH_WAY = 3
 
 # Meron
@@ -68,8 +73,28 @@ def bhz_range_of(d):
     return None
 
 
+def _special_start(d):
+    if d not in SPECIAL_STARTS:
+        return None
+    h, m, fold = SPECIAL_STARTS[d]
+    return datetime(d.year, d.month, d.day, h, m, fold=fold, tzinfo=db.TZ).astimezone(timezone.utc)
+
+
+def _at(d, t):
+    """Clock time `t` of night `d`. On a special night: the same distance from the start as usual
+    (counted in real minutes, so it is right also on the night the clock goes back)."""
+    sp = _special_start(d)
+    if not sp:
+        return datetime.combine(d, t, tzinfo=db.TZ)
+    mins = lambda x: x.hour * 60 + x.minute
+    return (sp + timedelta(minutes=mins(t) - mins(REGULAR_START))).astimezone(db.TZ)
+
+
 def window(d):
     """(start, end) datetimes of the session on morning `d`."""
+    sp = _special_start(d)
+    if sp:
+        return sp, datetime.combine(d, END, tzinfo=db.TZ)
     start = BHZ_START if bhz_range_of(d) else REGULAR_START
     return (datetime.combine(d, start, tzinfo=db.TZ), datetime.combine(d, END, tzinfo=db.TZ))
 
@@ -83,7 +108,7 @@ def opens_at(emp, d):
         t = OPENS_RIDERS_BHZ if bhz_range_of(d) else OPENS_RIDERS
     else:
         t = OPENS_OTHERS
-    return datetime.combine(d, t, tzinfo=db.TZ)
+    return _at(d, t)
 
 
 def regular_opens_at(emp, d):
@@ -103,7 +128,7 @@ def bhz_notice_due(emp, dt):
 def shuttle_window(dt):
     d = session_date(dt)
     a, b = SHUTTLE_WINDOW_BHZ if bhz_range_of(d) else SHUTTLE_WINDOW
-    return datetime.combine(d, a, tzinfo=db.TZ), datetime.combine(d, b, tzinfo=db.TZ)
+    return _at(d, a), _at(d, b)
 
 
 def shuttle_open(dt):
@@ -271,7 +296,7 @@ def day_month_summary(emp, hy, hm, until=None):
 
 def meron_recorded_in(d):
     t = MERON_RECORDED_IN_BHZ if bhz_range_of(d) else MERON_RECORDED_IN
-    return datetime.combine(d, t, tzinfo=db.TZ)
+    return _at(d, t)
 
 
 def recorded_clock_in(emp, t):

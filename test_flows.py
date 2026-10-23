@@ -873,6 +873,20 @@ def test_back_after_a_short_exit_same_night():
     assert db.parse(a[-1]["clock_in"]).strftime("%H:%M") == "04:30" and a[-1]["meron"] == 0 and a[0]["meron"] == 1
 
 
+def test_special_start_night_clock_goes_back():
+    seed()
+    at(2026, 10, 25, 0, 20)                                           # summer time; the kollel starts at 2:00 summer = 1:00 winter
+    t = menu_call("0503333332").press("1")                            # rider in the shuttle window
+    a = attendance("301")[-1]
+    assert a["meron"] == 1 and db.parse(a["clock_in"]).strftime("%H:%M") == "01:55"
+    at(2026, 10, 25, 0, 50)
+    assert "ייפתח" in menu_call("0503333334").press("1")                # others open at 1:00 summer
+    at(2026, 10, 25, 1, 5)
+    menu_call("0503333334").press("1")
+    p = pay_of("303", schedule.session_date(db.parse(attendance("303")[-1]["clock_in"])))
+    assert p["bonus"] == 30 and p["session"] == 390                   # early, and the night is 6.5 hours
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():
