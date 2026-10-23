@@ -62,7 +62,7 @@ class Reply:
         return text(self.lang, key, **kw)
 
     def time(self, dt):
-        return say_time(dt, self.lang)
+        return say_time(dt.astimezone(db.TZ) if dt.tzinfo else dt, self.lang)     # as the clock shows it then
 
     def say(self, txt):
         self.say_parts.append(tts(txt))

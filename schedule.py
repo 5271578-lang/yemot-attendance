@@ -22,11 +22,6 @@ SHUTTLE_WINDOW = (time(0, 45), time(1, 25))        # key 3 (driver) works only i
 SHUTTLE_WINDOW_BHZ = (time(1, 45), time(2, 25))    # bein hazmanim: the shuttle leaves at 2:00
 BHZ_NOTICE_OTHERS_UNTIL = time(2, 30)   # in bein hazmanim, non-riders clocking in before this hear the notice
 NEW_NIGHT_FROM_HOUR = 20             # a call from 20:00 belongs to the next morning's session
-# One-off nights that start at another time: {session morning: (hour, minute, fold)}. fold=1 = the second time
-# that hour comes, on the night the clock goes back. The openings, the shuttle window and the Meron 2:25 move with it.
-SPECIAL_STARTS = {
-    date(2026, 10, 25): (1, 0, 1),   # Motzaei Shabbat Noach: 2:00 summer time = 1:00 winter time
-}
 UMAN_NIGHTS_EACH_WAY = 3
 
 # Meron
@@ -73,30 +68,25 @@ def bhz_range_of(d):
     return None
 
 
-def _special_start(d):
-    if d not in SPECIAL_STARTS:
-        return None
-    h, m, fold = SPECIAL_STARTS[d]
-    return datetime(d.year, d.month, d.day, h, m, fold=fold, tzinfo=db.TZ).astimezone(timezone.utc)
+def _fall_back(d):
+    """The fixed winter offset on the night the clock goes back (Israel: last Sunday of October, 2:00 -> 1:00),
+    else None. That night every time is by the new (winter) clock: hour 1 comes twice, and it is the second one -
+    the shuttle window 0:45-1:25 opens at the first 1:45 and closes at the second 1:25."""
+    before = datetime.combine(d, time(0, 0), tzinfo=db.TZ).utcoffset()
+    after = datetime.combine(d, time(12, 0), tzinfo=db.TZ).utcoffset()
+    return timezone(after) if after < before else None
 
 
 def _at(d, t):
-    """Clock time `t` of night `d`. On a special night: the same distance from the start as usual
-    (counted in real minutes, so it is right also on the night the clock goes back)."""
-    sp = _special_start(d)
-    if not sp:
-        return datetime.combine(d, t, tzinfo=db.TZ)
-    mins = lambda x: x.hour * 60 + x.minute
-    return (sp + timedelta(minutes=mins(t) - mins(REGULAR_START))).astimezone(db.TZ)
+    """Clock time `t` of night `d` (on the night the clock goes back: by the winter clock)."""
+    tz = _fall_back(d)
+    return datetime.combine(d, t, tzinfo=tz or db.TZ)
 
 
 def window(d):
     """(start, end) datetimes of the session on morning `d`."""
-    sp = _special_start(d)
-    if sp:
-        return sp, datetime.combine(d, END, tzinfo=db.TZ)
     start = BHZ_START if bhz_range_of(d) else REGULAR_START
-    return (datetime.combine(d, start, tzinfo=db.TZ), datetime.combine(d, END, tzinfo=db.TZ))
+    return _at(d, start), _at(d, END)
 
 
 def is_rider(emp):

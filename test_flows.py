@@ -879,18 +879,21 @@ def test_back_after_a_short_exit_same_night():
     assert db.parse(a[-1]["clock_in"]).strftime("%H:%M") == "04:30" and a[-1]["meron"] == 0 and a[0]["meron"] == 1
 
 
-def test_special_start_night_clock_goes_back():
+def test_night_the_clock_goes_back():
+    from datetime import timezone, timedelta as td
     seed()
-    at(2026, 10, 25, 0, 20)                                           # summer time; the kollel starts at 2:00 summer = 1:00 winter
-    t = menu_call("0503333332").press("1")                            # rider in the shuttle window
+    w = schedule.window(schedule.session_date(datetime(2026, 10, 25, 3, 0, tzinfo=db.TZ)))
+    assert w[0].utcoffset() == td(hours=2) and w[0].hour == 2 and w[0].minute == 30
+    # 1:45 the first time (summer) = 0:45 winter: the shuttle window and the riders open
+    at(2026, 10, 25, 1, 40)
+    assert "ייפתח" in menu_call("0503333332").press("1")
+    at(2026, 10, 25, 1, 46)
+    menu_call("0503333332").press("1")                                # rider: Meron, recorded 2:25 winter
     a = attendance("301")[-1]
-    assert a["meron"] == 1 and db.parse(a["clock_in"]).strftime("%H:%M") == "01:55"
-    at(2026, 10, 25, 0, 50)
-    assert "ייפתח" in menu_call("0503333334").press("1")                # others open at 1:00 summer
-    at(2026, 10, 25, 1, 5)
-    menu_call("0503333334").press("1")
-    p = pay_of("303", schedule.session_date(db.parse(attendance("303")[-1]["clock_in"])))
-    assert p["bonus"] == 30 and p["session"] == 390                   # early, and the night is 6.5 hours
+    rec = db.parse(a["clock_in"])
+    assert a["meron"] == 1 and rec.utcoffset() == td(hours=2) and rec.strftime("%H:%M") == "02:25"
+    p = pay_of("301", schedule.session_date(rec))
+    assert p["session"] == 300 and p["bonus"] == 30                   # a normal 5-hour night
 
 
 # ---- messages ------------------------------------------------------------
