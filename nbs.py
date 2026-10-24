@@ -35,15 +35,17 @@ def _get(command, timeout=20, **params):
 REDIAL_WAIT_SECONDS = 90
 
 
-def redial_template(attempts, wait=None):
+def redial_template(attempts, wait=None, kind="shuttle"):
     """Campaign template that dials each number up to `attempts` times (`wait` seconds apart), stopping once
-    answered. Created on first use and remembered. Returns its id, or None."""
+    answered. Created on first use and remembered. Returns its id, or None.
+    kind "forward" = separate templates whose voice file is a forwarded message (never used for other calls)."""
     wait = wait or REDIAL_WAIT_SECONDS
-    key = f"nbs_template_{attempts}" + ("" if wait == REDIAL_WAIT_SECONDS else f"_{wait}")
+    key = (f"nbs_template_{attempts}" if kind == "shuttle" else f"nbs_{kind}_template_{attempts}") + \
+        ("" if wait == REDIAL_WAIT_SECONDS else f"_{wait}")
     tid = db.get_setting(key)
     if tid:
         return tid
-    name = f"attendance-shuttle-{attempts}" + ("" if wait == REDIAL_WAIT_SECONDS else f"-{wait}s")
+    name = f"attendance-{kind}-{attempts}" + ("" if wait == REDIAL_WAIT_SECONDS else f"-{wait}s")
     try:
         templates = _get("GetTemplates").json().get("templates") or []
         tid = next((str(t["templateId"]) for t in templates if t.get("description") == name), None)
@@ -134,6 +136,77 @@ def urgent_calls(texts_by_phone, wait=15 * 60, tries=(10, 8, 5, 3)):
             ok, info = run_tts_calls(texts_by_phone, template_id=tid)
             return ok, f"{info} (up to {n} calls, every {wait // 60} minutes)"
     return run_tts_calls(texts_by_phone)
+
+
+def join_wavs(parts):
+    """Several .wav recordings one after the other (same format), or the first one if they cannot be joined."""
+    import io
+    import wave
+    parts = [p for p in parts if p]
+    if len(parts) <= 1:
+        return parts[0] if parts else None
+    try:
+        out = io.BytesIO()
+        with wave.open(io.BytesIO(parts[0])) as w0:
+            params = w0.getparams()
+        with wave.open(out, "wb") as w:
+            w.setparams(params)
+            for p in parts:
+                with wave.open(io.BytesIO(p)) as wi:
+                    w.writeframes(wi.readframes(wi.getnframes()))
+        return out.getvalue()
+    except Exception:
+        return parts[0]
+
+
+def _ok(r):
+    try:
+        d = r.json()
+    except ValueError:
+        return False
+    return str(d.get("responseStatus", "")).upper() == "OK" and d.get("success", True) is not False
+
+
+def set_template_voice(tid, wav, folder):
+    """Make `wav` the voice message of campaign template `tid`: upload it next to the recordings, copy it to
+    tpl:<id> (FileAction), remove the copy. If that fails, upload straight to tpl:<id>."""
+    tmp = f"{folder.rstrip('/')}/forward_{tid}.wav"
+    try:
+        up = requests.post(API + "UploadFile", data={"token": TOKEN, "path": f"ivr2:{tmp}", "convertAudio": "1"},
+                           files={"file": ("forward.wav", wav, "audio/wav")}, timeout=60)
+        if _ok(up) and _ok(_get("FileAction", action="copy", what0=f"ivr2:{tmp}", target=f"tpl:{tid}")):
+            _get("FileAction", action="delete", what0=f"ivr2:{tmp}")
+            return True
+        up = requests.post(API + "UploadFile", data={"token": TOKEN, "path": f"tpl:{tid}", "convertAudio": "1"},
+                           files={"file": ("forward.wav", wav, "audio/wav")}, timeout=60)
+        return _ok(up)
+    except requests.RequestException:
+        return False
+
+
+def voice_calls(wav, texts_by_phone, folder, wait=15 * 60, tries=(10, 8, 5, 3)):
+    """Phone everyone and play them the recording itself when they answer (then each one's own short text).
+    Unanswered numbers are dialled again every `wait` seconds, as many times as the system allows."""
+    phones = {israeli(p): t for p, t in texts_by_phone.items() if israeli(p)}
+    if not (enabled() and wav and phones):
+        return False, "nothing to send"
+    for n in tries:
+        tid = redial_template(n, wait, kind="forward")
+        if not tid:
+            continue
+        if not set_template_voice(tid, wav, folder):
+            return False, "could not upload the recording"
+        params = {"templateId": tid, "ttsMode": "1", "phones": json.dumps(phones, ensure_ascii=False)}
+        if CALLER_ID:
+            params["callerId"] = CALLER_ID
+        try:
+            data = _get("RunCampaign", **params).json()
+        except (requests.RequestException, ValueError) as ex:
+            return False, f"error: {ex}"
+        if data.get("responseStatus") != "OK":
+            return False, data.get("message") or data.get("responseStatus") or "error"
+        return True, f"{data.get('campaignId') or 'sent'} (up to {n} calls, every {wait // 60} minutes)"
+    return False, "no redial template"
 
 
 def download_recording(path):

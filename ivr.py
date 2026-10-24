@@ -2135,7 +2135,13 @@ def notify_urgent(msg_id):
              for x in rows if nbs.israeli(x["phone"] or "")}
     if not texts:
         return
-    ok, info = nbs.urgent_calls(texts)
+    with db.connect() as c:
+        paths = [x for x in c.execute("SELECT recording_path FROM messages WHERE id=?", (msg_id,)).fetchone()[0].split("|") if x]
+    wav = nbs.join_wavs([nbs.download_recording(x) for x in paths])
+    after = {x["phone"]: text(x["language"], "urgent_call_after", sender=x["sender"]) for x in rows if nbs.israeli(x["phone"] or "")}
+    ok, info = nbs.voice_calls(wav, after, folder=paths[0].rsplit("/", 1)[0] or "/") if wav else (False, "")
+    if not ok:                                   # could not play the recording in the call: ask them to call the line
+        ok, info = nbs.urgent_calls(texts)
     with db.connect() as c:
         c.execute("UPDATE messages SET campaign_id=? WHERE id=?", (info if ok else None, msg_id))
         c.executemany("UPDATE message_recipients SET delivery_status=? WHERE id=?",

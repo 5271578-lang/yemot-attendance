@@ -614,31 +614,11 @@ def forward_messages():
     return redirect(url_for("admin.messages", msg=f"Forwarded to {len(rcpts)} avrechim.{info}"))
 
 
-def join_wavs(parts):
-    """Several .wav recordings one after the other (same format), or the first one if they cannot be joined."""
-    import wave
-    parts = [p for p in parts if p]
-    if len(parts) <= 1:
-        return parts[0] if parts else None
-    try:
-        out = io.BytesIO()
-        with wave.open(io.BytesIO(parts[0])) as w0:
-            params = w0.getparams()
-        with wave.open(out, "wb") as w:
-            w.setparams(params)
-            for p in parts:
-                with wave.open(io.BytesIO(p)) as wi:
-                    w.writeframes(wi.readframes(wi.getnframes()))
-        return out.getvalue()
-    except Exception:
-        return parts[0]
-
-
 @bp.route("/recording/<int:mid>")
 def recording(mid):
     with db.connect() as c:
         m = c.execute("SELECT recording_path FROM messages WHERE id=?", (mid,)).fetchone()
-    data = join_wavs([nbs.download_recording(p) for p in m["recording_path"].split("|") if p]) if m else None
+    data = nbs.join_wavs([nbs.download_recording(p) for p in m["recording_path"].split("|") if p]) if m else None
     if not data:
         return Response("Recording not available", 404)
     return Response(data, mimetype="audio/wav")

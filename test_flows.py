@@ -914,9 +914,13 @@ def test_forward_messages_urgent_to_kollel_chatzos():
         ids = [x[0] for x in c.execute("SELECT id FROM messages ORDER BY created_at")]
     calls = []
     _n.urgent_calls = lambda texts, **k: (calls.append(texts) or (True, "77"))
+    _n.download_recording = lambda path: None                          # recording not reachable here: falls back
     r = client.post("/admin/messages/forward", headers=AUTH, data={"mid": [str(i) for i in reversed(ids)], "audience": "night", "call": "on"})
     assert r.status_code == 302
-    _time.sleep(0.2)
+    for _ in range(50):
+        if calls:
+            break
+        _time.sleep(0.1)
     with db.connect() as c:
         msg = c.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         n = c.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (msg["id"],)).fetchone()[0]
@@ -1519,6 +1523,20 @@ def test_additional_phone_in_settings():
 
 def test_hangup_notice():
     assert client.post("/ivr", data={"ApiCallId": "z", "hangup": "yes", "key": "s3cret"}).data == b"ok"
+
+
+
+def test_forward_plays_the_recording_in_the_call():
+    import io, wave
+    import nbs as _n
+    def wav(n):
+        b = io.BytesIO()
+        with wave.open(b, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000); w.writeframes(b"\0\1" * n)
+        return b.getvalue()
+    joined = _n.join_wavs([wav(10), wav(20)])
+    with wave.open(io.BytesIO(joined)) as w:
+        assert w.getnframes() == 30
 
 
 if __name__ == "__main__":
