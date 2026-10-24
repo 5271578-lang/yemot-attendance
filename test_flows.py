@@ -903,6 +903,33 @@ def test_night_the_clock_goes_back():
     assert schedule.meron_recorded_in(d).astimezone(db.TZ).strftime("%H:%M") == "03:25"
 
 
+def test_forward_messages_urgent_to_kollel_chatzos():
+    import nbs as _n
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET name='יידל שענק' WHERE emp_number='302'")
+    m = menu_call("0503333333"); m.press("4"); m.press("2"); m.press("/8/one.wav")      # an avrech to the managers
+    m = menu_call("0503333333"); m.press("4"); m.press("2"); m.press("/8/two.wav")
+    with db.connect() as c:
+        ids = [x[0] for x in c.execute("SELECT id FROM messages ORDER BY created_at")]
+    calls = []
+    _n.urgent_calls = lambda texts, **k: (calls.append(texts) or (True, "77"))
+    r = client.post("/admin/messages/forward", headers=AUTH, data={"mid": [str(i) for i in reversed(ids)], "audience": "night", "call": "on"})
+    assert r.status_code == 302
+    _time.sleep(0.2)
+    with db.connect() as c:
+        msg = c.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
+        n = c.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (msg["id"],)).fetchone()[0]
+    assert msg["recording_path"] == "/8/one|/8/two" and msg["urgent"] == 1
+    assert n == len([1 for e in [emp(x) for x in ("100", "200", "201", "300", "301", "302", "303", "304", "400")] if e["in_night"]])
+    assert calls and "הודעה חשובה מאת יידל שענק" in list(calls[-1].values())[0]
+    # the avrech calls: both recordings at once, before the menu
+    t = Call("0503333331").start()
+    assert "הודעה חשובה מאת יידל שענק" in t and "f-/8/one.f-/8/two" in t
+    t = Call("0503333331").start()
+    assert "הודעה חשובה" not in t                                       # heard: not again
+
+
 # ---- messages ------------------------------------------------------------
 
 def test_driver_shuttle_also_clocks_in():

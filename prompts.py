@@ -265,6 +265,9 @@ HE = {
     "when": "ביום {weekday}, {day} ב{month}, בשעה {time}",
     "after_msg": "לשמיעה חוזרת הקישו 1. להודעה הבאה הקישו 2",
     "end_messages": "אין הודעות נוספות",
+    "urgent_header": "הודעה חשובה מאת {sender}",
+    "urgent_after": "לשמיעה חוזרת הקישו 1. להמשך הקישו 2",
+    "urgent_call_text": "שלום {name}. יש לך הודעה חשובה מאת {sender}. כדי לשמוע אותה, התקשרו עכשיו לקו הכולל",
     "notify_call_text": "שלום {name}. יש לך הודעה חדשה מאת {sender}. כדי לשמוע אותה, התקשרו לקו הנוכחות והקישו 4",
 
     # Uman (asked once, after Rosh Hashana, only from the person's own phone)

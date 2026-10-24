@@ -35,20 +35,21 @@ def _get(command, timeout=20, **params):
 REDIAL_WAIT_SECONDS = 90
 
 
-def redial_template(attempts):
-    """Campaign template that dials each number up to `attempts` times, stopping once answered.
-    Created on first use and remembered. Returns its id, or None."""
-    key = f"nbs_template_{attempts}"
+def redial_template(attempts, wait=None):
+    """Campaign template that dials each number up to `attempts` times (`wait` seconds apart), stopping once
+    answered. Created on first use and remembered. Returns its id, or None."""
+    wait = wait or REDIAL_WAIT_SECONDS
+    key = f"nbs_template_{attempts}" + ("" if wait == REDIAL_WAIT_SECONDS else f"_{wait}")
     tid = db.get_setting(key)
     if tid:
         return tid
-    name = f"attendance-shuttle-{attempts}"
+    name = f"attendance-shuttle-{attempts}" + ("" if wait == REDIAL_WAIT_SECONDS else f"-{wait}s")
     try:
         templates = _get("GetTemplates").json().get("templates") or []
         tid = next((str(t["templateId"]) for t in templates if t.get("description") == name), None)
         if not tid:
             tid = str(_get("CreateTemplate", description=name).json()["templateId"])
-        ok = _get("UpdateTemplate", templateId=tid, maxDialAttempts=str(attempts), redialWait=str(REDIAL_WAIT_SECONDS),
+        ok = _get("UpdateTemplate", templateId=tid, maxDialAttempts=str(attempts), redialWait=str(wait),
                   redialPolicy="FAILED").json().get("responseStatus") == "OK"
     except (requests.RequestException, ValueError, KeyError, TypeError):
         return None
@@ -122,6 +123,17 @@ def set_redial(max_attempts=3, wait_seconds=120):
     except (requests.RequestException, ValueError) as ex:
         return False, str(ex)
     return data.get("responseStatus") == "OK", data.get("message") or data.get("responseStatus")
+
+
+def urgent_calls(texts_by_phone, wait=15 * 60, tries=(10, 8, 5, 3)):
+    """Calls that are redialled every `wait` seconds until answered - as many times as the system allows
+    (tries the largest number first). Returns (ok, info)."""
+    for n in tries:
+        tid = redial_template(n, wait)
+        if tid:
+            ok, info = run_tts_calls(texts_by_phone, template_id=tid)
+            return ok, f"{info} (up to {n} calls, every {wait // 60} minutes)"
+    return run_tts_calls(texts_by_phone)
 
 
 def download_recording(path):

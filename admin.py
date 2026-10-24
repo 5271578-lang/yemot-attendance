@@ -571,21 +571,74 @@ def messages():
     by_msg = {}
     for r in rcpts:
         by_msg.setdefault(r["message_id"], []).append(r)
-    body = """<h1>Messages (last 30 days)</h1>
-{% for m in msgs %}<div class="box"><b>{{ m.sender }}</b> → {{ m.recipient_label }}
-<span class="muted"> · {{ m.heb_date }} · {{ fmt(m.created_at) }}</span>
+    body = """<h1>Messages (last 30 days)</h1>{% if request.args.get('msg') %}<p class="warn">{{ request.args.get('msg') }}</p>{% endif %}
+<form method="post" action="{{ url_for('admin.forward_messages') }}" id="fwd">
+<div class="box"><b>Forward to everyone</b> - tick the messages below (they are joined in the order they were left, the first first),
+then: <select name="audience"><option value="night">Kollel Chatzos</option><option value="day">Kollel Horaah</option><option value="both">Both kollels</option></select>
+<label><input type="checkbox" name="call" checked> Phone them now, again every 15 minutes until they answer</label>
+<button onclick="return confirm('Send the ticked messages to everyone chosen?')">Forward</button>
+<div class="muted">When an avrech calls the line, it is played to him right after the greeting, before the menu.</div></div></form>
+{% for m in msgs %}<div class="box"><label><input type="checkbox" name="mid" value="{{ m.id }}" form="fwd"> <b>{{ m.sender }}</b> → {{ m.recipient_label }}</label>
+<span class="muted"> · {{ m.heb_date }} · {{ fmt(m.created_at) }}{{ ' · urgent' if m.urgent else '' }}</span>
 <div><audio controls preload="none" src="{{ url_for('admin.recording', mid=m.id) }}"></audio></div>
 <table><tr><th>Recipient</th><th>Notification call</th><th>Listened</th></tr>{% for r in by_msg.get(m.id, []) %}
 <tr><td>{{ r.name }}</td><td>{{ r.delivery_status }}</td><td>{{ fmt(r.listened_at) if r.listened_at else '—' }}</td></tr>{% endfor %}
 </table></div>{% else %}<p class="muted">No messages yet.</p>{% endfor %}"""
-    return page(body, msgs=msgs, by_msg=by_msg, fmt=fmt)
+    return page(body, msgs=msgs, by_msg=by_msg, fmt=fmt, request=request)
+
+
+@bp.route("/messages/forward", methods=["POST"])
+def forward_messages():
+    """Join the ticked messages (oldest first) into one urgent message to a whole kollel, and phone everyone."""
+    import threading
+    import ivr
+    ids = [int(x) for x in request.form.getlist("mid")]
+    if not ids:
+        return redirect(url_for("admin.messages", msg="Tick at least one message"))
+    with db.connect() as c:
+        ms = c.execute(f"SELECT * FROM messages WHERE id IN ({','.join('?' * len(ids))}) ORDER BY created_at", ids).fetchall()
+        everyone = c.execute("SELECT * FROM employees WHERE active=1").fetchall()
+        who = request.form.get("audience", "night")
+        rcpts = [e for e in everyone if (who in ("night", "both") and e["in_night"]) or (who in ("day", "both") and e["in_day"])]
+        label = {"night": "כולל חצות", "day": "כולל הוראה", "both": "שני הכוללים"}[who] + " (הודעה מועברת)"
+        t = db.now()
+        mid = c.execute("INSERT INTO messages(sender_id, created_at, heb_date, recipient_type, recipient_label, recording_path, "
+                        "channel, urgent) VALUES (?,?,?,?,?,?,'kollel',1)",
+                        (ms[0]["sender_id"], t.isoformat(), hebcal.format_date(t.date(), "he"), who, label,
+                         "|".join(m["recording_path"] for m in ms))).lastrowid
+        c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)", [(mid, e["id"]) for e in rcpts])
+    info = ""
+    if request.form.get("call"):
+        threading.Thread(target=ivr.notify_urgent, args=(mid,), daemon=True).start()
+        info = " Calling them now, again every 15 minutes until they answer."
+    return redirect(url_for("admin.messages", msg=f"Forwarded to {len(rcpts)} avrechim.{info}"))
+
+
+def join_wavs(parts):
+    """Several .wav recordings one after the other (same format), or the first one if they cannot be joined."""
+    import wave
+    parts = [p for p in parts if p]
+    if len(parts) <= 1:
+        return parts[0] if parts else None
+    try:
+        out = io.BytesIO()
+        with wave.open(io.BytesIO(parts[0])) as w0:
+            params = w0.getparams()
+        with wave.open(out, "wb") as w:
+            w.setparams(params)
+            for p in parts:
+                with wave.open(io.BytesIO(p)) as wi:
+                    w.writeframes(wi.readframes(wi.getnframes()))
+        return out.getvalue()
+    except Exception:
+        return parts[0]
 
 
 @bp.route("/recording/<int:mid>")
 def recording(mid):
     with db.connect() as c:
         m = c.execute("SELECT recording_path FROM messages WHERE id=?", (mid,)).fetchone()
-    data = nbs.download_recording(m["recording_path"]) if m else None
+    data = join_wavs([nbs.download_recording(p) for p in m["recording_path"].split("|") if p]) if m else None
     if not data:
         return Response("Recording not available", 404)
     return Response(data, mimetype="audio/wav")

@@ -296,8 +296,32 @@ def unheard(emp_id):
                          "AND rc.announced_at IS NULL AND m.channel='kollel' ORDER BY m.created_at DESC", (emp_id,)).fetchall()
 
 
+def play_files(r, recording_path):
+    """A message can hold several recordings one after the other ('/8/a|/8/b')."""
+    for p in (recording_path or "").split("|"):
+        if p:
+            r.file(p)
+
+
+def urgent_waiting(emp_id):
+    with db.connect() as c:
+        return c.execute("SELECT rc.id, m.recording_path, s.name AS sender FROM message_recipients rc "
+                         "JOIN messages m ON m.id=rc.message_id JOIN employees s ON s.id=m.sender_id "
+                         "WHERE rc.employee_id=? AND rc.listened_at IS NULL AND m.urgent=1 AND m.channel='kollel' "
+                         "ORDER BY m.created_at", (emp_id,)).fetchall()
+
+
 def menu_or_waiting(r):
-    """Right after sign-in: if messages are waiting, offer to hear them first."""
+    """Right after sign-in: an urgent message is played at once; other waiting messages are offered first."""
+    urgent = urgent_waiting(r.s["employee_id"])
+    if urgent:
+        u = urgent[0]
+        with db.connect() as c:
+            c.execute("UPDATE message_recipients SET listened_at=?, announced_at=COALESCE(announced_at, ?) WHERE id=?",
+                      (db.now().isoformat(), db.now().isoformat(), u["id"]))
+        r.say(r.t("urgent_header", sender=u["sender"]))
+        play_files(r, u["recording_path"])
+        return r.ask("urgent_after", r.t("urgent_after"), allowed=["1", "2"], path=u["recording_path"])
     if not r.s["data"].get("waiting_asked"):
         r.s["data"]["waiting_asked"] = True
         waiting = unheard(r.s["employee_id"])
@@ -308,6 +332,14 @@ def menu_or_waiting(r):
             key = "waiting_one" if len(waiting) == 1 else "waiting_many"
             return r.ask("waiting_choice", r.t(key, sender=waiting[0]["sender"], n=len(waiting)), allowed=["1", "2"])
     main_menu(r)
+
+
+@step
+def urgent_after(r, answer, path):
+    if answer == "1":
+        play_files(r, path)
+        return r.ask("urgent_after", r.t("urgent_after"), allowed=["1", "2"], path=path)
+    menu_or_waiting(r)
 
 
 @step
@@ -501,7 +533,7 @@ def m_play(r, i, header=True):
         t = db.parse(row["created_at"])
         y, m, d = hebcal.from_gregorian(t.date())
         r.say(r.t("m_header", sender=row["sender"], day=d, month=hebcal.month_name(m, y, "he"), time=r.time(t)))
-    r.file(row["recording_path"])
+    play_files(r, row["recording_path"])
     r.ask("m_after", r.t("after_msg"), allowed=["1", "2"], i=i)
 
 
@@ -1667,7 +1699,7 @@ def play(r, i, header=True):
         kind = r.t("msg_new" if row["listened_at"] is None else "msg_saved")
         r.say(r.t("msg_header", kind=kind, n=i + 1, total=len(playlist), sender=row["sender_name"],
                   when=say_when(r, db.parse(row["created_at"]))))
-    r.file(row["recording_path"])
+    play_files(r, row["recording_path"])
     r.ask("after_message", r.t("after_msg"), allowed=["1", "2"], i=i)
 
 
@@ -1704,7 +1736,7 @@ def play_sent(r, i, header=True):
     if header:
         r.say(r.t("sent_header", n=i + 1, total_msgs=len(ids), label=m["recipient_label"] or "",
                   when=say_when(r, db.parse(m["created_at"])), heard=heard, total=total))
-    r.file(m["recording_path"])
+    play_files(r, m["recording_path"])
     r.ask("after_sent", r.t("after_msg"), allowed=["1", "2"], i=i)
 
 
@@ -2091,6 +2123,23 @@ def recorded(r, answer, target):
         threading.Thread(target=notify, args=(msg_id, by_tzintuk), daemon=True).start()
     r.say(r.t("saved_to_managers" if target["type"] == "managers" else "saved_to_employees"))
     main_menu(r)
+
+
+def notify_urgent(msg_id):
+    """Phone every recipient who has not heard it yet; redialled every 15 minutes until answered."""
+    with db.connect() as c:
+        rows = c.execute("SELECT rc.id, e.name, e.phone, e.language, s.name AS sender FROM message_recipients rc "
+                         "JOIN employees e ON e.id=rc.employee_id JOIN messages m ON m.id=rc.message_id "
+                         "JOIN employees s ON s.id=m.sender_id WHERE rc.message_id=? AND rc.listened_at IS NULL", (msg_id,)).fetchall()
+    texts = {x["phone"]: text(x["language"], "urgent_call_text", name=x["name"], sender=x["sender"])
+             for x in rows if nbs.israeli(x["phone"] or "")}
+    if not texts:
+        return
+    ok, info = nbs.urgent_calls(texts)
+    with db.connect() as c:
+        c.execute("UPDATE messages SET campaign_id=? WHERE id=?", (info if ok else None, msg_id))
+        c.executemany("UPDATE message_recipients SET delivery_status=? WHERE id=?",
+                      [("calling every 15 min" if ok else f"call failed: {info}", x["id"]) for x in rows])
 
 
 def notify(msg_id, by_tzintuk=False):
