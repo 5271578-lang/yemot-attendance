@@ -176,7 +176,7 @@ MIGRATIONS = {
                   ("phone2", "TEXT"), ("phone2_mode", "TEXT NOT NULL DEFAULT 'none'"),
                   ("phone2_calls", "INTEGER NOT NULL DEFAULT 1"), ("moreshet_role", "TEXT"), ("moreshet_key", "TEXT"),
                   ("moreshet_name", "TEXT")],
-    "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'"), ("urgent", "INTEGER NOT NULL DEFAULT 0")],
+    "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'"), ("urgent", "INTEGER NOT NULL DEFAULT 0"), ("call_result", "TEXT")],
     "message_recipients": [("announced_at", "TEXT")],
     "tefila_entries": [("added_by", "INTEGER")],
     "attendance": [("exit_confirmed", "INTEGER NOT NULL DEFAULT 0"), ("early_exit", "INTEGER NOT NULL DEFAULT 0"),

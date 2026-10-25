@@ -515,7 +515,7 @@ def test_manager_tools_sent_groups_and_voice():
     with db.connect() as conn:
         m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (m["id"],))]
-    assert m["recipient_label"] == "כולל חצות, מי שלא רשום בהסעות" and to == ["303"]
+    assert m["recipient_label"] == "כולל חצות, מי שלא רשום בהסעות" and sorted(to) == ["200", "303"]          # the manager gets a copy
     # the manager hears what he sent
     c = menu_call("0502222222"); c.press("4")
     t = c.press("3")
@@ -567,7 +567,7 @@ def test_manager_tools_sent_groups_and_voice():
     with db.connect() as conn:
         m = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         n = conn.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (m["id"],)).fetchone()[0]
-    assert n == 2 and "משה כהן" in m["recipient_label"]
+    assert n == 3 and "משה כהן" in m["recipient_label"]                # 2 + the manager's copy
     # an avrech has no manager options
     assert "למצב של אברך אחר" not in menu_call("0503333331").press("6")
     assert match_ok(ivr)
@@ -629,7 +629,7 @@ def test_who_is_here_and_messages_to_present_and_registered():
     with db.connect() as conn:
         msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (msg["id"],))]
-    assert msg["recipient_label"] == "מי שנוכח כרגע" and to == ["300"]
+    assert msg["recipient_label"] == "מי שנוכח כרגע" and sorted(to) == ["200", "300"]
     # from the send menu too: 4 -> 2 -> 8
     m = menu_call("0502222222"); m.press("4"); m.press("2")
     assert ",record," in m.press("8")
@@ -641,7 +641,7 @@ def test_who_is_here_and_messages_to_present_and_registered():
     with db.connect() as conn:
         msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         n = conn.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (msg["id"],)).fetchone()[0]
-    assert msg["recipient_label"] == "הנרשמים לנסיעה" and n == 1
+    assert msg["recipient_label"] == "הנרשמים לנסיעה" and n == 2                # + the manager's copy
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("2026-10-19,06:22:20\n")
     tefila.NETZ_FILE = f
@@ -653,7 +653,7 @@ def test_who_is_here_and_messages_to_present_and_registered():
     with db.connect() as conn:
         msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         to = [x[0] for x in conn.execute("SELECT e.emp_number FROM message_recipients r JOIN employees e ON e.id=r.employee_id WHERE message_id=?", (msg["id"],))]
-    assert msg["recipient_label"] == "הנרשמים היום לתפלה בכח" and to == ["301"]
+    assert msg["recipient_label"] == "הנרשמים היום לתפלה בכח" and sorted(to) == ["100", "301"]
 
 
 def test_manager_registers_new_avrech_by_phone():
@@ -932,6 +932,11 @@ def test_forward_messages_urgent_to_kollel_chatzos():
     assert "הודעה חשובה מאת יידל שענק" in t and "f-/8/one.f-/8/two" in t
     t = Call("0503333331").start()
     assert "הודעה חשובה" not in t                                       # heard: not again
+    page_ = client.get("/admin/messages", headers=AUTH).get_data(as_text=True)
+    assert "Stop playing it at the start" in page_ and "Calls: OK" in page_
+    client.post(f"/admin/messages/{msg['id']}/action", headers=AUTH, data={"do": "stop"})
+    with db.connect() as c:
+        assert c.execute("SELECT urgent FROM messages WHERE id=?", (msg["id"],)).fetchone()[0] == 0
 
 
 # ---- messages ------------------------------------------------------------
@@ -966,7 +971,7 @@ def test_group_message_uses_tzintuk():
     c.press("4"); c.press("2"); c.press("4")                         # shuttle group 1
     c.press("/8/g.wav")
     _time.sleep(0.2)
-    assert calls and sorted(calls[-1]) == ["0503333331", "0503333335", "0504444444"]
+    assert calls and sorted(calls[-1]) == ["0502222222", "0503333331", "0503333335", "0504444444"]
     c = menu_call("0502222222")
     c.press("4"); c.press("2"); c.press("6"); c.press("Digits-301"); c.press("1")         # one person: voice call
     SENT.clear()
@@ -1455,7 +1460,7 @@ def test_day_kollel():
     nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
     m = menu_call("0502222299"); m.press("4"); m.press("2"); m.press("2"); m.press("/8/day.wav")
     _, names = recipients_of_last()
-    assert names == ["No Shuttle", "Worker A1", "Worker A2"]
+    assert [n for n in names if n not in ("Day Mgr",)] == ["No Shuttle", "Worker A1", "Worker A2"] and len(names) == 4
     w = menu_call("0503333332"); w.press("4"); w.press("2"); w.press("/8/q.wav")
     assert "Day Mgr" in recipients_of_last()[1] and "Site Mgr A" not in recipients_of_last()[1]
     # key 6 for a day-only avrech

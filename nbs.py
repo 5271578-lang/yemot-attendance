@@ -133,6 +133,7 @@ def urgent_calls(texts_by_phone, wait=15 * 60, tries=(10, 8, 5, 3)):
     for n in tries:
         tid = redial_template(n, wait)
         if tid:
+            copy_default_settings(tid)
             ok, info = run_tts_calls(texts_by_phone, template_id=tid)
             return ok, f"{info} (up to {n} calls, every {wait // 60} minutes)"
     return run_tts_calls(texts_by_phone)
@@ -167,6 +168,38 @@ def _ok(r):
     return str(d.get("responseStatus", "")).upper() == "OK" and d.get("success", True) is not False
 
 
+def _templates():
+    try:
+        return _get("GetTemplates").json().get("templates") or []
+    except (requests.RequestException, ValueError):
+        return []
+
+
+def copy_default_settings(tid):
+    """A new template has no caller id etc.: take them from the account's default campaign (or from NBS_CALLER_ID)."""
+    ts = _templates()
+    base = next((t for t in ts if t.get("customerDefault")), None) or \
+        next((t for t in ts if t.get("callerId") and str(t.get("templateId")) != str(tid)), None) or {}
+    params = {"templateId": tid}
+    if CALLER_ID or base.get("callerId"):
+        params["callerId"] = CALLER_ID or base["callerId"]
+    for k in ("yemotContext", "maxActiveChannels", "originateTimeout", "vmDetect"):
+        if base.get(k) not in (None, ""):
+            v = base[k]
+            params[k] = ("1" if v else "0") if isinstance(v, bool) else str(v)
+    if params.get("yemotContext") in (None, "", "BRIDGE", "VOICEMAIL", "OTHER"):
+        params["yemotContext"] = "MESSAGE"
+    try:
+        _get("UpdateTemplate", **params)
+    except requests.RequestException:
+        pass
+
+
+def message_exists(tid):
+    t = next((t for t in _templates() if str(t.get("templateId")) == str(tid)), None)
+    return bool(t and t.get("messageExists"))
+
+
 def set_template_voice(tid, wav, folder):
     """Make `wav` the voice message of campaign template `tid`: upload it next to the recordings, copy it to
     tpl:<id> (FileAction), remove the copy. If that fails, upload straight to tpl:<id>."""
@@ -194,8 +227,9 @@ def voice_calls(wav, texts_by_phone, folder, wait=15 * 60, tries=(10, 8, 5, 3)):
         tid = redial_template(n, wait, kind="forward")
         if not tid:
             continue
-        if not set_template_voice(tid, wav, folder):
-            return False, "could not upload the recording"
+        copy_default_settings(tid)
+        if not set_template_voice(tid, wav, folder) or not message_exists(tid):
+            return False, "could not put the recording on the campaign"
         params = {"templateId": tid, "ttsMode": "1", "phones": json.dumps(phones, ensure_ascii=False)}
         if CALLER_ID:
             params["callerId"] = CALLER_ID

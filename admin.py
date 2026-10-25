@@ -576,15 +576,36 @@ def messages():
 <div class="box"><b>Forward to everyone</b> - tick the messages below (they are joined in the order they were left, the first first),
 then: <select name="audience"><option value="night">Kollel Chatzos</option><option value="day">Kollel Horaah</option><option value="both">Both kollels</option></select>
 <label><input type="checkbox" name="call" checked> Phone them now, again every 15 minutes until they answer</label>
+<br>Also send it to me: <select name="copy_to"><option value="">-</option>{% for e in people %}<option value="{{ e.id }}" {{ 'selected' if e.id|string == copy_to else '' }}>{{ e.name }}</option>{% endfor %}</select>
 <button onclick="return confirm('Send the ticked messages to everyone chosen?')">Forward</button>
 <div class="muted">When an avrech calls the line, it is played to him right after the greeting, before the menu.</div></div></form>
 {% for m in msgs %}<div class="box"><label><input type="checkbox" name="mid" value="{{ m.id }}" form="fwd"> <b>{{ m.sender }}</b> → {{ m.recipient_label }}</label>
-<span class="muted"> · {{ m.heb_date }} · {{ fmt(m.created_at) }}{{ ' · urgent' if m.urgent else '' }}</span>
+<span class="muted"> · {{ m.heb_date }} · {{ fmt(m.created_at) }}</span>
+{% if m.urgent %}<div class="warn">Played at the start of every call until heard.
+<form method="post" action="{{ url_for('admin.message_action', mid=m.id) }}" style="display:inline">
+<button name="do" value="stop">Stop playing it at the start</button>
+<button name="do" value="call" onclick="return confirm('Phone again everyone who has not heard it?')">Phone again those who did not hear</button></form></div>{% endif %}
+{% if m.call_result %}<div class="muted">Calls: {{ m.call_result }}</div>{% endif %}
 <div><audio controls preload="none" src="{{ url_for('admin.recording', mid=m.id) }}"></audio></div>
 <table><tr><th>Recipient</th><th>Notification call</th><th>Listened</th></tr>{% for r in by_msg.get(m.id, []) %}
 <tr><td>{{ r.name }}</td><td>{{ r.delivery_status }}</td><td>{{ fmt(r.listened_at) if r.listened_at else '—' }}</td></tr>{% endfor %}
 </table></div>{% else %}<p class="muted">No messages yet.</p>{% endfor %}"""
-    return page(body, msgs=msgs, by_msg=by_msg, fmt=fmt, request=request)
+    with db.connect() as c:
+        people = c.execute("SELECT id, name FROM employees WHERE active=1 ORDER BY role<>'tech_manager', role NOT LIKE '%manager', name").fetchall()
+    return page(body, msgs=msgs, by_msg=by_msg, fmt=fmt, request=request, people=people,
+                copy_to=db.get_setting("forward_copy_to") or "")
+
+
+@bp.route("/messages/<int:mid>/action", methods=["POST"])
+def message_action(mid):
+    import threading
+    import ivr
+    if request.form.get("do") == "stop":
+        with db.connect() as c:
+            c.execute("UPDATE messages SET urgent=0 WHERE id=?", (mid,))
+        return redirect(url_for("admin.messages", msg="It is no longer played at the start of calls (still in the messages, key 4)."))
+    threading.Thread(target=ivr.notify_urgent, args=(mid,), daemon=True).start()
+    return redirect(url_for("admin.messages", msg="Calling again. Refresh this page in a minute to see the result under the message."))
 
 
 @bp.route("/messages/forward", methods=["POST"])
@@ -600,6 +621,8 @@ def forward_messages():
         everyone = c.execute("SELECT * FROM employees WHERE active=1").fetchall()
         who = request.form.get("audience", "night")
         rcpts = [e for e in everyone if (who in ("night", "both") and e["in_night"]) or (who in ("day", "both") and e["in_day"])]
+        copy_to = request.form.get("copy_to", "")
+        rcpts += [e for e in everyone if str(e["id"]) == copy_to and e not in rcpts]
         label = {"night": "כולל חצות", "day": "כולל הוראה", "both": "שני הכוללים"}[who] + " (הודעה מועברת)"
         t = db.now()
         mid = c.execute("INSERT INTO messages(sender_id, created_at, heb_date, recipient_type, recipient_label, recording_path, "
@@ -607,10 +630,11 @@ def forward_messages():
                         (ms[0]["sender_id"], t.isoformat(), hebcal.format_date(t.date(), "he"), who, label,
                          "|".join(m["recording_path"] for m in ms))).lastrowid
         c.executemany("INSERT INTO message_recipients(message_id, employee_id) VALUES (?,?)", [(mid, e["id"]) for e in rcpts])
+    db.set_setting("forward_copy_to", copy_to)
     info = ""
     if request.form.get("call"):
         threading.Thread(target=ivr.notify_urgent, args=(mid,), daemon=True).start()
-        info = " Calling them now, again every 15 minutes until they answer."
+        info = " Calling them now. Refresh this page in a minute to see the result under the message."
     return redirect(url_for("admin.messages", msg=f"Forwarded to {len(rcpts)} avrechim.{info}"))
 
 

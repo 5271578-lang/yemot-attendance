@@ -1731,7 +1731,8 @@ def play_sent(r, i, header=True):
         m = c.execute("SELECT * FROM messages WHERE id=? AND sender_id=?", (ids[i], r.s["employee_id"])).fetchone()
         if m is None:
             return play_sent(r, i + 1)
-        total, heard = c.execute("SELECT COUNT(*), COUNT(listened_at) FROM message_recipients WHERE message_id=?",
+        total, heard = c.execute("SELECT COUNT(*), COUNT(listened_at) FROM message_recipients WHERE message_id=? "
+                                 "AND employee_id<>(SELECT sender_id FROM messages WHERE id=message_id)",
                                  (m["id"],)).fetchone()
     if header:
         r.say(r.t("sent_header", n=i + 1, total_msgs=len(ids), label=m["recipient_label"] or "",
@@ -2109,6 +2110,8 @@ def recorded(r, answer, target):
     if not recipients:
         r.say(r.t("no_recipients"))
         return main_menu(r)
+    if is_manager(emp) and target["type"] != "managers" and all(e["id"] != emp["id"] for e in recipients):
+        recipients = list(recipients) + [emp]        # the manager gets it too, so he knows it went out
     t = db.now()
     with db.connect() as c:
         msg_id = c.execute(
@@ -2126,7 +2129,16 @@ def recorded(r, answer, target):
 
 
 def notify_urgent(msg_id):
-    """Phone every recipient who has not heard it yet; redialled every 15 minutes until answered."""
+    """Phone every recipient who has not heard it yet; redialled every 15 minutes until answered.
+    What happened is written on the message (shown on the admin Messages page)."""
+    try:
+        _notify_urgent(msg_id)
+    except Exception as ex:                      # never lose the reason silently
+        with db.connect() as c:
+            c.execute("UPDATE messages SET call_result=? WHERE id=?", (f"error: {ex!r}"[:300], msg_id))
+
+
+def _notify_urgent(msg_id):
     with db.connect() as c:
         rows = c.execute("SELECT rc.id, e.name, e.phone, e.language, s.name AS sender FROM message_recipients rc "
                          "JOIN employees e ON e.id=rc.employee_id JOIN messages m ON m.id=rc.message_id "
@@ -2134,18 +2146,25 @@ def notify_urgent(msg_id):
     texts = {x["phone"]: text(x["language"], "urgent_call_text", name=x["name"], sender=x["sender"])
              for x in rows if nbs.israeli(x["phone"] or "")}
     if not texts:
+        with db.connect() as c:
+            c.execute("UPDATE messages SET call_result=? WHERE id=?", ("nobody to call (no phone numbers)", msg_id))
         return
     with db.connect() as c:
         paths = [x for x in c.execute("SELECT recording_path FROM messages WHERE id=?", (msg_id,)).fetchone()[0].split("|") if x]
     wav = nbs.join_wavs([nbs.download_recording(x) for x in paths])
     after = {x["phone"]: text(x["language"], "urgent_call_after", sender=x["sender"]) for x in rows if nbs.israeli(x["phone"] or "")}
-    ok, info = nbs.voice_calls(wav, after, folder=paths[0].rsplit("/", 1)[0] or "/") if wav else (False, "")
+    ok, info = nbs.voice_calls(wav, after, folder=paths[0].rsplit("/", 1)[0] or "/") if wav else \
+        (False, "could not download the recording")
+    how = "the recording is played in the call"
     if not ok:                                   # could not play the recording in the call: ask them to call the line
+        first = info
         ok, info = nbs.urgent_calls(texts)
+        how = f"a call asking to phone the line (playing the recording failed: {first})"
+    result = (f"OK - campaign {info}; {how}" if ok else f"FAILED - {info}; {how}")
     with db.connect() as c:
-        c.execute("UPDATE messages SET campaign_id=? WHERE id=?", (info if ok else None, msg_id))
+        c.execute("UPDATE messages SET campaign_id=?, call_result=? WHERE id=?", (info if ok else None, result[:500], msg_id))
         c.executemany("UPDATE message_recipients SET delivery_status=? WHERE id=?",
-                      [("calling every 15 min" if ok else f"call failed: {info}", x["id"]) for x in rows])
+                      [("calling every 15 min" if ok else "call failed", x["id"]) for x in rows])
 
 
 def notify(msg_id, by_tzintuk=False):
