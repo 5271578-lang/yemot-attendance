@@ -1574,8 +1574,11 @@ def test_voice_actions_and_requests():
     assert "אין לך הרשאה" in m.press("משהו")
     # a request for a change: saved after confirming
     m = menu_call("0501111111"); m.press("9"); m.press("9"); m.press("2")
-    t = m.press("תוסיף שלוחה לנסיעה למירון")
-    assert "תוסיף שלוחה לנסיעה למירון" in t and "לשמירה הקישו 1" in t
+    t = m.press("תוסיף שלוחה")
+    assert "תוסיף שלוחה" in t and "להוספת המשך" in t
+    m.press("2")
+    t = m.press("לנסיעה למירון")
+    assert "תוסיף שלוחה לנסיעה למירון" in t
     m.press("1")
     assert [x["text"] for x in assistant.requests_list()] == ["תוסיף שלוחה לנסיעה למירון"]
     assert "תוסיף שלוחה לנסיעה למירון" in client.get("/admin/requests", headers=AUTH).get_data(as_text=True)

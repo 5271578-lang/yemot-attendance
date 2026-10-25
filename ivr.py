@@ -1328,12 +1328,17 @@ def voice_retry(r, answer, kind):
 
 
 @step
-def voice_request(r, answer):
+def voice_request(r, answer, text=""):
+    """A request can be said in parts: each part is added to what was said before, until saved."""
     said = _spoken(answer)
-    if not said:
-        r.say(r.t("voice_not_heard"))
+    if said:
+        text = f"{text} {said}".strip()
+    elif not text:
+        r.say(r.t("voice_not_heard_short"))
         return _voice_retry(r, "request")
-    r.ask("voice_request_ok", r.t("voice_request_confirm", text=said), allowed=["1", "2"], text=said)
+    else:
+        r.say(r.t("voice_not_heard_short"))
+    r.ask("voice_request_ok", r.t("voice_request_confirm", text=text), allowed=["1", "2", "3"], text=text)
 
 
 @step
@@ -1343,6 +1348,8 @@ def voice_request_ok(r, answer, text):
         r.say(r.t("voice_request_saved"))
         return main_menu(r)
     if answer == "2":
+        return r.ask_voice("voice_request", r.t("voice_say_more"), text=text)
+    if answer == "3":
         return r.ask_voice("voice_request", r.t("voice_say_request"))
     main_menu(r)
 
@@ -1352,7 +1359,7 @@ def voice_action(r, answer):
     me = employee(r)
     said = _spoken(answer)
     if not said:
-        r.say(r.t("voice_not_heard"))
+        r.say(r.t("voice_not_heard_short"))
         return _voice_retry(r, "action")
     scope = manager_scope(me)
     pend = pending_corrections(me)
