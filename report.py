@@ -192,8 +192,9 @@ def send(hy, hm, until=None, builder=None, to=None):
     msg["To"] = ", ".join(s["to"])
     msg.set_content("סיכום החודש מצורף. לתצוגה מלאה יש לפתוח את המייל בתצוגת HTML.")
     msg.add_alternative(html, subtype="html")
-    msg.add_attachment(csv_text.encode("utf-8"), maintype="text", subtype="csv",
-                       filename=f"summary-{hy}-{hm}.csv")
+    if csv_text:
+        msg.add_attachment(csv_text.encode("utf-8"), maintype="text", subtype="csv",
+                           filename=f"summary-{hy}-{hm}.csv")
     try:
         with smtplib.SMTP(s["host"], s["port"], timeout=30) as smtp:
             smtp.starttls()

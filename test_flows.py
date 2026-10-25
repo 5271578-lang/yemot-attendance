@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        for t in ("moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        for t in ("change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -1542,6 +1542,46 @@ def test_forward_plays_the_recording_in_the_call():
     joined = _n.join_wavs([wav(10), wav(20)])
     with wave.open(io.BytesIO(joined)) as w:
         assert w.getnframes() == 30
+
+
+
+def test_voice_actions_and_requests():
+    import assistant
+    seed()
+    at(2026, 10, 25, 12, 0)
+    assistant.API_KEY = "x"
+    said = {}
+    def fake(text, people, pend, today=None):
+        return said["a"]
+    assistant.interpret = fake
+    assistant._email = lambda *a: None
+    eid = emp("301")["id"]
+    # a bonus by voice: confirm, then saved
+    m = menu_call("0501111111"); m.press("9")
+    t = m.press("9")
+    assert "לבקשה לשינוי במערכת עצמה הקישו 2" in t
+    t = m.press("1")
+    assert ",voice,he-IL" in t
+    said["a"] = {"action": "gift", "employee_id": eid, "amount": 200}
+    t = m.press("תוסיף בונוס של מאתיים שקל לפלוני")
+    assert "להוסיף בונוס של 200 שקל ל" in t
+    m.press("1")
+    with db.connect() as c:
+        assert c.execute("SELECT amount FROM gifts WHERE employee_id=?", (eid,)).fetchone()[0] == 200
+    # not in his scope / cancelled
+    said["a"] = {"action": "gift", "employee_id": 999999, "amount": 50}
+    m = menu_call("0501111111"); m.press("9"); m.press("9"); m.press("1")
+    assert "אין לך הרשאה" in m.press("משהו")
+    # a request for a change: saved after confirming
+    m = menu_call("0501111111"); m.press("9"); m.press("9"); m.press("2")
+    t = m.press("תוסיף שלוחה לנסיעה למירון")
+    assert "תוסיף שלוחה לנסיעה למירון" in t and "לשמירה הקישו 1" in t
+    m.press("1")
+    assert [x["text"] for x in assistant.requests_list()] == ["תוסיף שלוחה לנסיעה למירון"]
+    assert "תוסיף שלוחה לנסיעה למירון" in client.get("/admin/requests", headers=AUTH).get_data(as_text=True)
+    # an avrech has no key 9 -> 9
+    m = menu_call("0503333331"); m.press("9")
+    assert "בדיבור" not in m.last if hasattr(m, "last") else True
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ input,select{padding:5px;margin:3px 6px 3px 0}button{padding:6px 12px;background
 </style></head><body><nav><a href="{{ url_for('admin.payroll') }}">Kollel Chatzos</a><a href="{{ url_for('admin.day_payroll') }}">Kollel Horaah</a>
 <a href="{{ url_for('admin.employees', k='night') }}">Chatzos avrechim</a><a href="{{ url_for('admin.employees', k='day') }}">Horaah avrechim</a><a href="{{ url_for('admin.corrections') }}">Corrections</a>
 <a href="{{ url_for('admin.messages') }}">Messages</a><a href="{{ url_for('admin.shuttles') }}">Shuttles</a>
-<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a><a href="{{ url_for('admin.gifts_page') }}">Bonuses</a><a href="{{ url_for('admin.moreshet_page') }}">Moreshet HaNachal</a></nav>
+<a href="{{ url_for('admin.import_page') }}">Import</a><a href="{{ url_for('admin.registrations') }}">Registrations</a><a href="{{ url_for('admin.tefila_page') }}">Tefila B'Koach</a><a href="{{ url_for('admin.gifts_page') }}">Bonuses</a><a href="{{ url_for('admin.moreshet_page') }}">Moreshet HaNachal</a><a href="{{ url_for('admin.requests_page') }}">Requests</a></nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -385,6 +385,30 @@ def delete_gift(gid):
     if request.form.get("back") == "list":
         return redirect(url_for("admin.gifts_page", hy=g["heb_year"], hm=g["heb_month"]))
     return redirect(url_for("admin.employee_month", eid=g["employee_id"], hy=g["heb_year"], hm=g["heb_month"]))
+
+
+@bp.route("/requests", methods=["GET", "POST"])
+def requests_page():
+    """Requests for changes in the system, said on the phone (9 -> 9 -> 2)."""
+    import assistant
+    if request.method == "POST":
+        with db.connect() as c:
+            c.execute("UPDATE change_requests SET status=?, note=? WHERE id=?",
+                      (request.form.get("status", "open"), request.form.get("note", ""), int(request.form["id"])))
+        return redirect(url_for("admin.requests_page"))
+    rows = assistant.requests_list()
+    body = """<h1>Requests from the phone line</h1>
+<p class="muted">Managers: key 9, then 9, then 2 - say the change wanted. Done here when it is done.
+Voice actions (9, 9, 1): {{ 'on' if on else 'off - set ANTHROPIC_API_KEY on the server' }}.</p>
+<table><tr><th>When</th><th>Who</th><th>Request</th><th>Status</th><th></th></tr>
+{% for x in rows %}<tr><td>{{ fmt(x.created_at) }}</td><td>{{ x.name }}</td><td>{{ x.text }}</td>
+<td><form method="post" style="margin:0"><input type="hidden" name="id" value="{{ x.id }}">
+<select name="status"><option value="open" {{ 'selected' if x.status=='open' else '' }}>Open</option>
+<option value="done" {{ 'selected' if x.status=='done' else '' }}>Done</option>
+<option value="no" {{ 'selected' if x.status=='no' else '' }}>Not doing</option></select>
+<input name="note" value="{{ x.note or '' }}" placeholder="note"></td><td><button>Save</button></form></td></tr>
+{% else %}<tr><td colspan="5" class="muted">No requests yet.</td></tr>{% endfor %}</table>"""
+    return page(body, rows=rows, fmt=fmt, on=assistant.enabled())
 
 
 @bp.route("/bonuses", methods=["GET", "POST"])

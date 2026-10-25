@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, Response, request
 
+import assistant
 import db
 import hebcal
 import nbs
@@ -1263,8 +1264,9 @@ def settings_menu(r):
     if emp["shuttle_group"]:
         txt, keys = r.t("settings_shuttle") + ". " + txt, ["1"] + keys
     if is_manager(emp):
-        txt = r.t("settings_new_avrech") + ". " + r.t("settings_edit_avrech") + ". " + r.t("settings_gift") + ". " + txt
-        keys += ["6", "7", "8"]
+        txt = r.t("settings_new_avrech") + ". " + r.t("settings_edit_avrech") + ". " + r.t("settings_gift") + ". " + \
+            r.t("settings_voice") + ". " + txt
+        keys += ["6", "7", "8", "9"]
     r.ask("settings_choice", txt, allowed=keys)
 
 
@@ -1283,12 +1285,159 @@ def settings_choice(r, answer):
         return pick_avrech(r, "edit")
     if answer == "8" and is_manager(employee(r)):
         return pick_avrech(r, "gift")
+    if answer == "9" and is_manager(employee(r)):
+        return r.ask("voice_choice", r.t("voice_menu"), allowed=["1", "2"])
     if answer == "2":
         return r.ask("new_pin", r.t("new_pin"), digits=None, timeout=10)
     if answer == "3":
         menu = ". ".join(text(lang, "language_menu") for lang in LANGUAGES)
         keys = {"he": "1", "en": "2", "yi": "3"}
         return r.ask("language_set", menu, allowed=[keys[lang] for lang in LANGUAGES])
+    main_menu(r)
+
+
+# -- 9 -> 9: say what to do (assistant.py)
+
+def _spoken(answer):
+    a = (answer or "").strip()
+    return "" if not a or a in ("None", "0") or a.startswith("Digits-") else a
+
+
+@step
+def voice_choice(r, answer):
+    if not is_manager(employee(r)):
+        return main_menu(r)
+    if answer == "2":
+        return r.ask_voice("voice_request", r.t("voice_say_request"))
+    if not assistant.enabled():
+        r.say(r.t("voice_no_key"))
+        return r.ask("voice_choice", r.t("voice_menu"), allowed=["1", "2"])
+    r.ask_voice("voice_action", r.t("voice_say_action"))
+
+
+def _voice_retry(r, kind):
+    r.ask("voice_retry", r.t("voice_again_menu"), allowed=["1", "0"], kind=kind)
+
+
+@step
+def voice_retry(r, answer, kind):
+    if answer == "1" and is_manager(employee(r)):
+        return r.ask_voice("voice_request" if kind == "request" else "voice_action",
+                           r.t("voice_say_request" if kind == "request" else "voice_say_action"))
+    main_menu(r)
+
+
+@step
+def voice_request(r, answer):
+    said = _spoken(answer)
+    if not said:
+        r.say(r.t("voice_not_heard"))
+        return _voice_retry(r, "request")
+    r.ask("voice_request_ok", r.t("voice_request_confirm", text=said), allowed=["1", "2"], text=said)
+
+
+@step
+def voice_request_ok(r, answer, text):
+    if answer == "1":
+        assistant.save_request(employee(r), text)
+        r.say(r.t("voice_request_saved"))
+        return main_menu(r)
+    if answer == "2":
+        return r.ask_voice("voice_request", r.t("voice_say_request"))
+    main_menu(r)
+
+
+@step
+def voice_action(r, answer):
+    me = employee(r)
+    said = _spoken(answer)
+    if not said:
+        r.say(r.t("voice_not_heard"))
+        return _voice_retry(r, "action")
+    scope = manager_scope(me)
+    pend = pending_corrections(me)
+    a = assistant.interpret(said, scope, pend)
+    r.say(r.t("voice_heard", text=said))
+    kind = a.get("action")
+    ids = {e["id"]: e for e in scope}
+    who = ids.get(_int(a.get("employee_id")))
+    if kind in ("gift", "tefila_add", "status", "message_one") and who is None:
+        r.say(r.t("voice_not_allowed") if a.get("employee_id") else r.t("voice_error"))
+        return _voice_retry(r, "action")
+    if kind == "gift":
+        try:
+            amount = round(float(a.get("amount")), 2)
+        except (TypeError, ValueError):
+            amount = 0
+        if not 0 < amount <= 100000:
+            r.say(r.t("voice_error"))
+            return _voice_retry(r, "action")
+        amount = int(amount) if amount == int(amount) else amount
+        return r.ask("voice_ok", r.t("voice_confirm", what=r.t("voice_gift", amount=amount, name=who["name"])),
+                     allowed=["1", "2"], act={"action": "gift", "eid": who["id"], "amount": amount})
+    if kind == "tefila_add":
+        day = assistant.parse_day(a.get("day"), db.now().date())
+        if day is None or not (tefila.CAMPAIGN["first"] <= day <= tefila.CAMPAIGN["last"]):
+            r.say(r.t("voice_error"))
+            return _voice_retry(r, "action")
+        return r.ask("voice_ok", r.t("voice_confirm", what=r.t("voice_tefila", name=who["name"], day=hebcal.format_date(day, "he"))),
+                     allowed=["1", "2"], act={"action": "tefila_add", "eid": who["id"], "day": day.isoformat()})
+    if kind == "correction":
+        cid = _int(a.get("correction_id"))
+        if cid not in pend:
+            r.say(r.t("voice_error"))
+            return _voice_retry(r, "action")
+        with db.connect() as c:
+            k = c.execute("SELECT k.*, e.name FROM corrections k JOIN employees e ON e.id=k.employee_id WHERE k.id=?", (cid,)).fetchone()
+        approve = a.get("approve") is not False
+        what = r.t("voice_corr_yes" if approve else "voice_corr_no", name=k["name"],
+                   kind=r.t("fix_kind_in" if k["kind"] == "in" else "fix_kind_out"), when=say_when(r, db.parse(k["requested_time"])))
+        return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
+                     act={"action": "correction", "cid": cid, "approve": approve})
+    if kind == "status":
+        return status_of(r, who, name=True)
+    if kind == "present":
+        return who_is_here(r)
+    if kind == "message" and a.get("to") in ("night", "day", "night_no_shuttle", "present", "managers"):
+        return send_to(r, {"type": a["to"]})
+    if kind == "message_one":
+        return record_message(r, {"type": "employee", "employee_id": who["id"]})
+    if kind == "request":
+        txt = str(a.get("text") or said)
+        return r.ask("voice_ok", r.t("voice_is_request", text=txt), allowed=["1", "2"], act={"action": "request", "text": said})
+    if kind == "unclear" and a.get("question"):
+        r.say(r.t("voice_unclear", question=str(a["question"])))
+        return _voice_retry(r, "action")
+    r.say(r.t("voice_error"))
+    _voice_retry(r, "action")
+
+
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+@step
+def voice_ok(r, answer, act):
+    me = employee(r)
+    if answer != "1" or not is_manager(me):
+        r.say(r.t("voice_cancelled"))
+        return main_menu(r)
+    if act["action"] == "gift":
+        return gift_ok(r, "1", act["eid"], act["amount"])
+    if act["action"] == "tefila_add":
+        if _target(r, act["eid"]) is None:
+            return main_menu(r)
+        tefila.add_manual(act["eid"], datetime.fromisoformat(act["day"]).date(), me["id"])
+        r.say(r.t("voice_done"))
+        return main_menu(r)
+    if act["action"] == "correction":
+        return review_choice(r, "1" if act["approve"] else "2", [act["cid"]], 0)
+    if act["action"] == "request":
+        assistant.save_request(me, act["text"])
+        r.say(r.t("voice_request_saved"))
     main_menu(r)
 
 

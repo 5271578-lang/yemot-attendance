@@ -131,6 +131,14 @@ CREATE TABLE IF NOT EXISTS gifts (
     created_at TEXT NOT NULL,
     added_by INTEGER
 );
+CREATE TABLE IF NOT EXISTS change_requests (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    created_at TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    note TEXT
+);
 CREATE TABLE IF NOT EXISTS moreshet_reports (
     id INTEGER PRIMARY KEY,
     employee_id INTEGER NOT NULL REFERENCES employees(id),
