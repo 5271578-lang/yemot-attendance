@@ -400,6 +400,7 @@ def requests_page():
     body = """<h1>Requests from the phone line</h1>
 <p class="muted">Managers: key 9, then 9, then 2 - say the change wanted. Done here when it is done.
 Voice actions (9, 9, 1): {{ 'on' if on else 'off - set ANTHROPIC_API_KEY on the server' }}.</p>
+<p>Read-only address of the open requests (to give Claude): <code>{{ link }}</code></p>
 <table><tr><th>When</th><th>Who</th><th>Request</th><th>Status</th><th></th></tr>
 {% for x in rows %}<tr><td>{{ fmt(x.created_at) }}</td><td>{{ x.name }}</td><td>{{ x.text }}</td>
 <td><form method="post" style="margin:0"><input type="hidden" name="id" value="{{ x.id }}">
@@ -408,7 +409,8 @@ Voice actions (9, 9, 1): {{ 'on' if on else 'off - set ANTHROPIC_API_KEY on the 
 <option value="no" {{ 'selected' if x.status=='no' else '' }}>Not doing</option></select>
 <input name="note" value="{{ x.note or '' }}" placeholder="note"></td><td><button>Save</button></form></td></tr>
 {% else %}<tr><td colspan="5" class="muted">No requests yet.</td></tr>{% endfor %}</table>"""
-    return page(body, rows=rows, fmt=fmt, on=assistant.enabled())
+    link = request.host_url.rstrip("/").replace("http://", "https://") + "/requests.txt?key=" + assistant.read_key()
+    return page(body, rows=rows, fmt=fmt, on=assistant.enabled(), link=link)
 
 
 @bp.route("/bonuses", methods=["GET", "POST"])

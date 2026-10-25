@@ -1579,6 +1579,9 @@ def test_voice_actions_and_requests():
     m.press("1")
     assert [x["text"] for x in assistant.requests_list()] == ["תוסיף שלוחה לנסיעה למירון"]
     assert "תוסיף שלוחה לנסיעה למירון" in client.get("/admin/requests", headers=AUTH).get_data(as_text=True)
+    assert client.get("/requests.txt?key=wrong").status_code == 404
+    t = client.get("/requests.txt?key=" + assistant.read_key()).get_data(as_text=True)
+    assert "תוסיף שלוחה לנסיעה למירון" in t
     # an avrech has no key 9 -> 9
     m = menu_call("0503333331"); m.press("9")
     assert "בדיבור" not in m.last if hasattr(m, "last") else True

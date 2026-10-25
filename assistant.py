@@ -110,6 +110,22 @@ def _email(name, text):
         pass
 
 
+def read_key():
+    """The secret of the read-only address of the open requests (made once, kept in the settings)."""
+    import secrets
+    k = os.environ.get("REQUESTS_KEY") or db.get_setting("requests_key")
+    if not k:
+        k = secrets.token_urlsafe(18)
+        db.set_setting("requests_key", k)
+    return k
+
+
+def as_text(rows):
+    if not rows:
+        return "אין בקשות פתוחות."
+    return "\n\n".join(f'#{x["id"]} | {x["created_at"][:16].replace("T", " ")} | {x["name"]}\n{x["text"]}' for x in rows)
+
+
 def requests_list(status=None):
     q = "SELECT r.*, e.name FROM change_requests r JOIN employees e ON e.id=r.employee_id"
     args = ()
