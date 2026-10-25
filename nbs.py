@@ -25,10 +25,23 @@ def israeli(phone):
     return p if p.startswith("0") and len(p) in (9, 10) else None
 
 
+class NbsError(requests.RequestException):
+    """An error without the address (the address holds the token and every phone number)."""
+
+
 def _get(command, timeout=20, **params):
+    """Commands go as POST (form body): a long list of phones does not fit in an address (error 414).
+    DownloadFile stays GET (it returns the file itself)."""
     params["token"] = TOKEN
-    r = requests.get(API + command, params=params, timeout=timeout)
-    r.raise_for_status()
+    try:
+        if command == "DownloadFile":
+            r = requests.get(API + command, params=params, timeout=timeout)
+        else:
+            r = requests.post(API + command, data=params, timeout=timeout)
+        r.raise_for_status()
+    except requests.RequestException as ex:
+        code = getattr(getattr(ex, "response", None), "status_code", None)
+        raise NbsError(f"{command}: " + (f"HTTP {code}" if code else type(ex).__name__)) from None
     return r
 
 

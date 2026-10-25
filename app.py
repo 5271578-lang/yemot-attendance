@@ -24,6 +24,9 @@ import report  # noqa: E402
 db.init_db()
 import moreshet  # noqa: E402
 moreshet.assign_defaults()
+with db.connect() as _c:            # old error texts held the whole request address (with the token): remove them
+    _c.execute("UPDATE message_recipients SET delivery_status='call failed (address too long)' WHERE delivery_status LIKE '%token=%'")
+    _c.execute("UPDATE messages SET call_result='FAILED (address too long)' WHERE call_result LIKE '%token=%'")
 if os.environ.get("DISABLE_REPORT_THREAD") != "1":
     report.start_background()
 
