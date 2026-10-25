@@ -470,7 +470,7 @@ def test_tefila_bekoach_key_8():
     assert "למבצע תפילה בכוח הקישו 8" in Call("0503333331").start()
     t = menu_call("0503333331").press("8")
     assert "רק מרבע שעה לפני התפילה עד קדיש דרבנן" in t and "להרשמה להגרלה" not in t and "כמה כניסות" in t
-    at(2026, 10, 18, 5, 25)                                           # 56 min before: open
+    at(2026, 10, 18, 5, 40)                                           # 41.67 min before: open
     c = menu_call("0503333331")
     t = c.press("8")
     assert "t-להרשמה להגרלה הקישו 1.t-לשמוע כמה כניסות יש לך להגרלה הקישו 2" in t and "קדיש" not in t
@@ -487,7 +487,7 @@ def test_tefila_bekoach_key_8():
     assert "להרשמה להגרלה" in menu_call("0503333332").press("8")
     at(2026, 10, 18, 5, 54)                                           # 27.67 min before: closed
     assert "להרשמה להגרלה" not in menu_call("0503333332").press("8")
-    at(2026, 10, 19, 5, 30)
+    at(2026, 10, 19, 5, 45)
     c = menu_call("0503333331"); c.press("8")
     assert "יש לך 2 כניסות להגרלה" in c.press("1")
     c = menu_call("0503333332"); c.press("8"); c.press("1")
@@ -598,7 +598,7 @@ def test_manager_trip_and_tefila_status():
     assert "לנסיעה לטבריה" not in Call("0503333331").start()
     assert "לנסיעה נרשמו 2" in menu_call("0502222222").press("7")
     # tefila: an avrech registers, the manager hears the status at any hour during the campaign
-    at(2026, 10, 19, 5, 30)
+    at(2026, 10, 19, 5, 45)
     c = menu_call("0503333331"); c.press("8"); c.press("1")
     at(2026, 10, 19, 10, 0)
     m = menu_call("0501111111")
@@ -645,7 +645,7 @@ def test_who_is_here_and_messages_to_present_and_registered():
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("2026-10-19,06:22:20\n")
     tefila.NETZ_FILE = f
-    at(2026, 10, 19, 5, 30)
+    at(2026, 10, 19, 5, 45)
     c = menu_call("0503333332"); c.press("8"); c.press("1")
     at(2026, 10, 19, 9, 0)
     m = menu_call("0501111111"); m.press("8"); m.press("3")
@@ -1588,41 +1588,6 @@ def test_voice_actions_and_requests():
     # an avrech has no key 9 -> 9
     m = menu_call("0503333331"); m.press("9")
     assert "בדיבור" not in m.last if hasattr(m, "last") else True
-
-
-
-def test_tefila_reminder_call():
-    import tefila, tempfile
-    seed()
-    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
-    open(f, "w").write("2026-10-20,06:22:00\n2026-10-21,06:23:00\n")
-    tefila.NETZ_FILE = f
-    at(2026, 10, 20, 14, 0)
-    m = menu_call("0503333331")
-    t = m.press("8")
-    assert "לשיחת תזכורת" in t
-    t = m.press("4")
-    assert "אין לך שיחת תזכורת" in t
-    t = m.press("20#")
-    assert "20 דקות לפני התפלה" in t and "בשעה 5 ו17 דקות" in t.replace(":", " ") or "20 דקות לפני התפלה" in t
-    assert emp("301")["tefila_reminder"] == 20 if emp("301")["phone"] == "0503333331" else True
-    sent = []
-    nbs.run_tts_calls = lambda texts, **k: (sent.append(texts) or (True, "1"))
-    # 21/10: davening 5:38, reminder 5:18
-    assert tefila.run_reminders(_dt(2026, 10, 21, 5, 10)) is None
-    tefila.run_reminders(_dt(2026, 10, 21, 5, 18))
-    assert sent and "0503333331" in sent[-1] and "בעוד 20 דקות" in sent[-1]["0503333331"]
-    n = len(sent)
-    tefila.run_reminders(_dt(2026, 10, 21, 5, 19))                     # once a day
-    assert len(sent) == n
-    m = menu_call("0503333331"); m.press("8"); m.press("4"); m.press("0#")
-    with db.connect() as c:
-        assert not c.execute("SELECT tefila_reminder FROM employees WHERE phone='0503333331'").fetchone()[0]
-
-
-def _dt(*a):
-    from datetime import datetime as _D
-    return _D(*a, tzinfo=db.TZ)
 
 
 

@@ -2,7 +2,7 @@
 Kaddish D'Rabbanan registers on the line - one raffle entry per day. Kept completely apart from the
 trip registrations (own tables: tefila_entries, tefila_draws).
 
-The key is open from 60 minutes before netz (15 minutes before davening, which is 45 minutes before netz)
+The key is open from 45 minutes before netz (15 minutes before davening, which is 30 minutes before netz)
 until 30 minutes before netz. Netz = visible sunrise in Tzfas from the Itim LeBina table, in netz_tzfat.csv
 (lines: YYYY-MM-DD,HH:MM[:SS]). A day without a netz time in the table is closed.
 """
@@ -20,7 +20,7 @@ CAMPAIGN = {
     "audience": "night",                       # Kollel Chatzos only
     "first": date(2026, 10, 18),
     "last": date(2026, 12, 12),                # Zos Chanuka, 2 Teves 5787
-    "opens_before": 60,                        # minutes before netz
+    "opens_before": 45,                        # minutes before netz (a quarter hour before davening)
     "closes_before": 28,
     "prizes": ["כרטיס טיסה לאומן", "השלמת הסבסוד לנסיעה לאומן בסוף החורף",
                "200 ש\"ח", "200 ש\"ח", "200 ש\"ח"],
