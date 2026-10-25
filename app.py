@@ -36,6 +36,7 @@ app.register_blueprint(admin_bp)
 
 
 @app.route("/requests.txt")
+@app.route("/open-requests")
 def open_requests():
     """Read-only: the open requests from the phone line (9 -> 9 -> 2), with the secret key. Nothing else."""
     import hmac
@@ -43,7 +44,9 @@ def open_requests():
     from flask import request, Response
     if not hmac.compare_digest(request.args.get("key", ""), assistant.read_key()):
         return Response("not found", status=404)
-    return Response(assistant.as_text(assistant.requests_list("open")), mimetype="text/plain; charset=utf-8")
+    out = Response(assistant.as_text(assistant.requests_list("open")), mimetype="text/plain; charset=utf-8")
+    out.headers["Cache-Control"] = "no-store, private, max-age=0"      # a ".txt" address was kept by the network cache
+    return out
 
 
 @app.route("/health")

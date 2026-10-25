@@ -409,7 +409,7 @@ Voice actions (9, 9, 1): {{ 'on' if on else 'off - set ANTHROPIC_API_KEY on the 
 <option value="no" {{ 'selected' if x.status=='no' else '' }}>Not doing</option></select>
 <input name="note" value="{{ x.note or '' }}" placeholder="note"></td><td><button>Save</button></form></td></tr>
 {% else %}<tr><td colspan="5" class="muted">No requests yet.</td></tr>{% endfor %}</table>"""
-    link = request.host_url.rstrip("/").replace("http://", "https://") + "/requests.txt?key=" + assistant.read_key()
+    link = request.host_url.rstrip("/").replace("http://", "https://") + "/open-requests?key=" + assistant.read_key()
     return page(body, rows=rows, fmt=fmt, on=assistant.enabled(), link=link)
 
 

@@ -83,6 +83,57 @@ def campaign_day(emp=None, now=None):
     return emp is None or (emp["active"] and for_employee(emp))
 
 
+# ---- personal reminder call: N minutes (his choice) before davening ------------
+
+DAVENING_BEFORE_NETZ = 30        # davening starts 30 minutes before netz
+REMINDER_MIN = 10                # at least 10 minutes before davening
+REMINDER_MAX = 120
+
+
+def davening(d):
+    n = netz(d)
+    return n - timedelta(minutes=DAVENING_BEFORE_NETZ) if n else None
+
+
+def set_reminder(emp_id, minutes):
+    with db.connect() as c:
+        c.execute("UPDATE employees SET tefila_reminder=? WHERE id=?", (minutes or None, emp_id))
+
+
+def reminders_due(now=None):
+    """[(employee row, minutes)] whose reminder time has come now (within 10 minutes) and was not sent today.
+    Each one is claimed, so it is sent once even with several workers. Not on Shabbos."""
+    now = now or db.now()
+    d = now.date()
+    dav = davening(d)
+    if dav is None or not (CAMPAIGN["first"] <= d <= CAMPAIGN["last"]) or d.weekday() == 5:
+        return []
+    out = []
+    with db.connect() as c:
+        rows = c.execute("SELECT * FROM employees WHERE active=1 AND tefila_reminder>0").fetchall()
+        for e in rows:
+            if not for_employee(e):
+                continue
+            at = dav - timedelta(minutes=e["tefila_reminder"])
+            if at <= now < at + timedelta(minutes=10):
+                if c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)",
+                             (f"tefila_rem_{e['id']}_{d.isoformat()}", now.isoformat())).rowcount:
+                    out.append((e, e["tefila_reminder"]))
+    return out
+
+
+def run_reminders(now=None):
+    """Called every minute: phone everyone whose reminder is due."""
+    import nbs
+    import prompts
+    due = reminders_due(now)
+    if not due:
+        return None
+    texts = {e["phone"]: prompts.text(e["language"] or "he", "tefila_reminder_call", name=e["name"], minutes=m)
+             for e, m in due if nbs.israeli(e["phone"] or "")}
+    return nbs.run_tts_calls(texts) if texts else None
+
+
 def entries_of(emp_id):
     with db.connect() as c:
         return c.execute("SELECT COUNT(*) FROM tefila_entries WHERE campaign=? AND employee_id=?",

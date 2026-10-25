@@ -304,3 +304,13 @@ def start_background():
                 db.set_setting("report_last_error", f"{db.now().isoformat()} {ex}")
             time.sleep(CHECK_EVERY_SECONDS)
     threading.Thread(target=loop, daemon=True, name="monthly-report").start()
+
+    def reminders():
+        import tefila
+        while True:
+            try:
+                tefila.run_reminders()
+            except Exception as ex:
+                db.set_setting("reminder_last_error", f"{db.now().isoformat()} {ex}")
+            time.sleep(60)
+    threading.Thread(target=reminders, daemon=True, name="tefila-reminders").start()

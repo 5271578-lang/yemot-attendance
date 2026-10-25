@@ -674,6 +674,9 @@ def tefila_start(r):
     if is_manager(me) and tefila.manager_period():
         keys.append("3")
         txt.append(r.t("tefila_menu_status"))
+    if tefila.campaign_day(me):
+        keys.append("4")
+        txt.append(r.t("tefila_menu_reminder"))
     if keys == ["2"] and not tefila.campaign_day(me):
         return main_menu(r)
     r.ask("tefila_choice", ". ".join(txt), allowed=keys, timeout=10)
@@ -687,12 +690,37 @@ def tefila_choice(r, answer):
     if answer == "2":
         r.say(tefila_entries_text(r, tefila.entries_of(me["id"])))
         return main_menu(r)
+    if answer == "4" and tefila.campaign_day(me):
+        now = me["tefila_reminder"]
+        r.say(r.t("tefila_reminder_now", minutes=now) if now else r.t("tefila_reminder_none"))
+        return r.ask("tefila_reminder_set", r.t("tefila_reminder_ask"), digits=None, timeout=10)
     if not tefila.is_open(me, call_start(r)):
         r.say(r.t("tefila_closed"))
         return main_menu(r)
     new, n = tefila.register(r.s["employee_id"], call_start(r))
     r.say(r.t("tefila_saved" if new else "tefila_already", entries=tefila_entries_text(r, n)))
     r.hangup()
+
+
+@step
+def tefila_reminder_set(r, answer):
+    me = employee(r)
+    a = (answer or "").strip("#")
+    if not a.isdigit() or int(a) > tefila.REMINDER_MAX:
+        r.say(r.t("invalid"))
+        return r.ask("tefila_reminder_set", r.t("tefila_reminder_ask"), digits=None, timeout=10)
+    if 0 < int(a) < tefila.REMINDER_MIN:
+        r.say(r.t("tefila_reminder_min", minutes=tefila.REMINDER_MIN))
+        return r.ask("tefila_reminder_set", r.t("tefila_reminder_ask"), digits=None, timeout=10)
+    m = int(a)
+    tefila.set_reminder(me["id"], m)
+    if not m:
+        r.say(r.t("tefila_reminder_off"))
+    else:
+        dav = tefila.davening(db.now().date() + timedelta(days=1))
+        when = r.time(dav - timedelta(minutes=m)) if dav else ""
+        r.say(r.t("tefila_reminder_saved", minutes=m) + (". " + r.t("tefila_reminder_tomorrow", time=when) if when else ""))
+    main_menu(r)
 
 
 @step

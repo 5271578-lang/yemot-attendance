@@ -1583,11 +1583,76 @@ def test_voice_actions_and_requests():
     assert [x["text"] for x in assistant.requests_list()] == ["תוסיף שלוחה לנסיעה למירון"]
     assert "תוסיף שלוחה לנסיעה למירון" in client.get("/admin/requests", headers=AUTH).get_data(as_text=True)
     assert client.get("/requests.txt?key=wrong").status_code == 404
-    t = client.get("/requests.txt?key=" + assistant.read_key()).get_data(as_text=True)
+    t = client.get("/open-requests?key=" + assistant.read_key()).get_data(as_text=True)
     assert "תוסיף שלוחה לנסיעה למירון" in t
     # an avrech has no key 9 -> 9
     m = menu_call("0503333331"); m.press("9")
     assert "בדיבור" not in m.last if hasattr(m, "last") else True
+
+
+
+def test_tefila_reminder_call():
+    import tefila, tempfile
+    seed()
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("2026-10-20,06:22:00\n2026-10-21,06:23:00\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 20, 14, 0)
+    m = menu_call("0503333331")
+    t = m.press("8")
+    assert "לשיחת תזכורת" in t
+    t = m.press("4")
+    assert "אין לך שיחת תזכורת" in t
+    t = m.press("20#")
+    assert "20 דקות לפני התפלה" in t and "בשעה 5 ו17 דקות" in t.replace(":", " ") or "20 דקות לפני התפלה" in t
+    assert emp("301")["tefila_reminder"] == 20 if emp("301")["phone"] == "0503333331" else True
+    sent = []
+    nbs.run_tts_calls = lambda texts, **k: (sent.append(texts) or (True, "1"))
+    # 21/10: davening 5:38, reminder 5:18
+    assert tefila.run_reminders(_dt(2026, 10, 21, 5, 10)) is None
+    tefila.run_reminders(_dt(2026, 10, 21, 5, 18))
+    assert sent and "0503333331" in sent[-1] and "בעוד 20 דקות" in sent[-1]["0503333331"]
+    n = len(sent)
+    tefila.run_reminders(_dt(2026, 10, 21, 5, 19))                     # once a day
+    assert len(sent) == n
+    m = menu_call("0503333331"); m.press("8"); m.press("4"); m.press("0#")
+    with db.connect() as c:
+        assert not c.execute("SELECT tefila_reminder FROM employees WHERE phone='0503333331'").fetchone()[0]
+
+
+def _dt(*a):
+    from datetime import datetime as _D
+    return _D(*a, tzinfo=db.TZ)
+
+
+
+def test_tefila_reminder_call():
+    import tefila, tempfile
+    from datetime import datetime as _D
+    dt = lambda *a: _D(*a, tzinfo=db.TZ)
+    seed()
+    f = os.path.join(tempfile.mkdtemp(), "netz.csv")
+    open(f, "w").write("2026-10-20,06:22:00\n2026-10-21,06:23:00\n")
+    tefila.NETZ_FILE = f
+    at(2026, 10, 20, 14, 0)
+    m = menu_call("0503333331")
+    assert "לשיחת תזכורת" in m.press("8")
+    assert "אין לך שיחת תזכורת" in m.press("4")
+    assert "לפחות 10 דקות" in m.press("5#")                              # less than 10: not allowed
+    t = m.press("20#")
+    assert "20 דקות לפני התפלה" in t
+    with db.connect() as c:
+        assert c.execute("SELECT tefila_reminder FROM employees WHERE phone='0503333331'").fetchone()[0] == 20
+    sent = []
+    nbs.run_tts_calls = lambda texts, **k: (sent.append(texts) or (True, "1"))
+    # 21/10: netz 6:23, davening 5:53, reminder 5:33
+    assert tefila.run_reminders(dt(2026, 10, 21, 5, 30)) is None
+    tefila.run_reminders(dt(2026, 10, 21, 5, 33))
+    assert sent and "בעוד 20 דקות" in sent[-1]["0503333331"]
+    tefila.run_reminders(dt(2026, 10, 21, 5, 34))                       # once a day
+    assert len(sent) == 1
+    m = menu_call("0503333331"); m.press("8"); m.press("4")
+    assert "התזכורת בוטלה" in m.press("0#")
 
 
 if __name__ == "__main__":

@@ -183,7 +183,7 @@ MIGRATIONS = {
                   ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0"),
                   ("phone2", "TEXT"), ("phone2_mode", "TEXT NOT NULL DEFAULT 'none'"),
                   ("phone2_calls", "INTEGER NOT NULL DEFAULT 1"), ("moreshet_role", "TEXT"), ("moreshet_key", "TEXT"),
-                  ("moreshet_name", "TEXT")],
+                  ("moreshet_name", "TEXT"), ("tefila_reminder", "INTEGER")],
     "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'"), ("urgent", "INTEGER NOT NULL DEFAULT 0"), ("call_result", "TEXT")],
     "message_recipients": [("announced_at", "TEXT")],
     "tefila_entries": [("added_by", "INTEGER")],
