@@ -947,7 +947,10 @@ def test_driver_shuttle_also_clocks_in():
     menu_call("0504444444").press("1")
     at(2026, 11, 17, 0, 50)
     c = menu_call("0504444444")
-    c.press("3")
+    t = c.press("3")
+    assert "לשמוע מי מחכה לך הקישו 2" in t
+    t = c.press("2")
+    assert "מחכים להסעה" in t and "Worker A1" in t and "לאישור יציאת ההסעה" in t
     t = c.press("1")
     assert "נשלחת ל" in t and "היציאה האחרונה שלך" in t               # same rules as key 1
     t = c.press("1")
