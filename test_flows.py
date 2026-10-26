@@ -950,7 +950,11 @@ def test_driver_shuttle_also_clocks_in():
     t = c.press("3")
     assert "לשמוע מי מחכה לך הקישו 2" in t
     t = c.press("2")
-    assert "מחכים להסעה" in t and "Worker A1" in t and "לאישור יציאת ההסעה" in t
+    assert "עדיין אף אברך מהקבוצה שלך לא אישר כניסה" in t and "לא אישרו כניסה" in t and "לאישור יציאת ההסעה" in t
+    menu_call("0503333331").press("1")                                # an avrech clocks in at the station
+    c = menu_call("0504444444"); c.press("3")
+    t = c.press("2")
+    assert "מחכים להסעה 1 אברכים" in t and "Worker A1" in t
     t = c.press("1")
     assert "נשלחת ל" in t and "היציאה האחרונה שלך" in t               # same rules as key 1
     t = c.press("1")

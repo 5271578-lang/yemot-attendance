@@ -995,18 +995,19 @@ def shuttle(r):
 
 
 def shuttle_waiting(driver, now=None):
-    """His shuttle group (his shift) who have not clocked in yet tonight: they are waiting for the shuttle."""
+    """His shuttle group (his shift): (waiting at the station = clocked in tonight, not coming tonight = did not)."""
     now = now or db.now()
     with db.connect() as c:
         rows = c.execute("SELECT * FROM employees WHERE active=1 AND id<>? AND shuttle_group=?",
                          (driver["id"], driver["shuttle_group"])).fetchall()
+        # (a rider's clock-in at the station is written as the kollel start, which can still be ahead)
         came = {a["employee_id"] for a in c.execute("SELECT employee_id, clock_in FROM attendance WHERE program='night' "
-                                                    "AND clock_in<=?", (now.isoformat(),)).fetchall()
+                                                    "AND clock_in>=?", ((now - timedelta(hours=20)).isoformat(),)).fetchall()
                 if schedule.session_date(db.parse(a["clock_in"])) == schedule.session_date(now)}
     if driver["shift"]:
         rows = [e for e in rows if e["shift"] == driver["shift"]]
     rows = [e for e in rows if schedule.in_night(e)]
-    return [e for e in rows if e["id"] not in came], [e for e in rows if e["id"] in came]
+    return [e for e in rows if e["id"] in came], [e for e in rows if e["id"] not in came]
 
 
 def shuttle_recipients(driver):
@@ -1022,11 +1023,11 @@ def shuttle_recipients(driver):
 def shuttle_choice(r, answer):
     if answer == "2":
         driver = employee(r)
-        waiting, came = shuttle_waiting(driver)
+        waiting, not_coming = shuttle_waiting(driver)
         r.say(r.t("shuttle_waiting", n=len(waiting), names=", ".join(e["name"] for e in waiting)) if waiting
               else r.t("shuttle_waiting_none"))
-        if came:
-            r.say(r.t("shuttle_came", n=len(came)))
+        if not_coming:
+            r.say(r.t("shuttle_not_coming", n=len(not_coming)))
         return r.ask("shuttle_choice", r.t("shuttle_confirm", group=GROUPS_SHORT[r.lang].get(driver["shuttle_group"], driver["shuttle_group"])),
                      allowed=["1", "2"])
     if answer != "1":
