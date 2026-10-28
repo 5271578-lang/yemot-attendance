@@ -45,6 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%'")
         for t in ("change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
@@ -1625,6 +1626,27 @@ def test_tefila_reminder_call():
     assert len(sent) == 1
     m = menu_call("0503333331"); m.press("8"); m.press("4")
     assert "התזכורת בוטלה" in m.press("0#")
+
+
+
+def test_line_expenses_monthly_bonus():
+    import expenses
+    from datetime import datetime as _D
+    seed()
+    eid = emp("100")["id"]
+    expenses.save(eid, [["NBS", 9.9], ["Render", 27]], (5787, 9))
+    # Cheshvan 5787 (handled by hand): nothing
+    assert expenses.run_once(_D(2026, 11, 5, 12, 0, tzinfo=db.TZ)) is None
+    # Kislev 5787 starts 30 Cheshvan = 10/11/2026 (night month from Rosh Chodesh)
+    gid = expenses.run_once(_D(2026, 11, 12, 12, 0, tzinfo=db.TZ))
+    assert gid
+    assert expenses.run_once(_D(2026, 11, 13, 12, 0, tzinfo=db.TZ)) is None            # once a month
+    with db.connect() as c:
+        g = c.execute("SELECT * FROM gifts WHERE id=?", (gid,)).fetchone()
+    assert g["amount"] == 36.9 and (g["heb_year"], g["heb_month"]) == (5787, 9) and "הוצאות הקו" in g["note"]
+    assert expenses.parse_lines("a = 9.90\nb=27\nbad") == [["a", 9.9], ["b", 27.0]]
+    page_ = client.get("/admin/bonuses?hy=5787&hm=9", headers=AUTH).get_data(as_text=True)
+    assert "Line expenses" in page_ and "36.90" in page_
 
 
 if __name__ == "__main__":

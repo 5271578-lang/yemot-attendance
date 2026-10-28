@@ -274,6 +274,8 @@ def run_once():
     """Send this month's report if due and not sent yet. Safe with several workers."""
     run_day_once()
     run_moreshet_once()
+    import expenses
+    expenses.run_once()
     if not enabled():
         return None
     when = due(db.now())

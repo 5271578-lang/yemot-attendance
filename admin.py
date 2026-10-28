@@ -416,7 +416,12 @@ Voice actions (9, 9, 1): {{ 'on' if on else 'off - set ANTHROPIC_API_KEY on the 
 @bp.route("/bonuses", methods=["GET", "POST"])
 def gifts_page():
     """Separate bonuses (not part of the stipend) of one Kollel Chatzos month, for all avrechim."""
+    import expenses
     hy, hm = month_args()
+    if request.method == "POST" and request.form.get("line_exp"):
+        fy, fm = (int(x) for x in request.form["from"].split("-"))
+        expenses.save(request.form.get("emp"), expenses.parse_lines(request.form.get("items")), (fy, fm))
+        return redirect(url_for("admin.gifts_page", hy=hy, hm=hm))
     if request.method == "POST":
         amount = float(request.form["amount"])
         with db.connect() as c:
@@ -438,6 +443,15 @@ def gifts_page():
 <select name="employee_id" multiple size="7" style="min-width:280px" required>{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
 Amount ₪ <input name="amount" type="number" step="0.01" required> For <input name="note"> <button>Add bonus</button>
 <span class="muted">Ctrl+click to give the same bonus to several avrechim.</span></form></div>
+<div class="box"><b>Line expenses, added automatically every month</b>
+<form method="post"><input type="hidden" name="line_exp" value="1">
+To: <select name="emp"><option value="">- nobody (stopped) -</option>{% for e in avrechim %}<option value="{{ e.id }}" {{ 'selected' if e.id == lx_emp else '' }}>{{ e.name }}</option>{% endfor %}</select>
+from the month: <select name="from">{% for y, m, label in lx_months %}<option value="{{ y }}-{{ m }}" {{ 'selected' if (y, m) == lx_from else '' }}>{{ label }}</option>{% endfor %}</select><br>
+<textarea name="items" rows="4" style="width:420px">{% for n, a in lx_items %}{{ n }} = {{ '%g'|format(a) }}
+{% endfor %}</textarea><br>
+<span class="muted">One expense per line: name = amount in ₪. Total now: ₪{{ '%.2f'|format(lx_total) }}.
+Added once at the start of each Kollel Chatzos month as a separate bonus ("הוצאות הקו"). A change applies from the next month added.</span>
+<button>Save</button></form></div>
 <div class="wrap"><table><tr><th>No.</th><th>Name</th><th class="right">Amount</th><th>For</th><th>Added</th><th></th></tr>
 {% for g in rows %}<tr><td>{{ g.emp_number }}</td><td><a href="{{ url_for('admin.employee_month', eid=g.employee_id, hy=hy, hm=hm) }}">{{ g.name }}</a></td>
 <td class="right">{{ '%.2f'|format(g.amount) }}</td><td>{{ g.note or '' }}</td>
@@ -446,8 +460,16 @@ Amount ₪ <input name="amount" type="number" step="0.01" required> For <input n
 {% else %}<tr><td colspan="6" class="muted">No bonuses this month.</td></tr>{% endfor %}
 {% if rows %}<tr><td></td><td><b>Total</b></td><td class="right"><b>{{ '%.2f'|format(rows|sum(attribute='amount')) }}</b></td><td colspan="3"></td></tr>{% endif %}
 </table></div>"""
+    months, (y, m) = [], (hy, hm)
+    for _ in range(14):
+        months.append((y, m, f"{hebcal.month_name(m, y)} {y}"))
+        y, m = hebcal.next_month(y, m)
+    lx_from = expenses.first_month()
+    if lx_from not in [(a, b) for a, b, _l in months]:
+        months.insert(0, (lx_from[0], lx_from[1], f"{hebcal.month_name(lx_from[1], lx_from[0])} {lx_from[0]}"))
     return page(body, rows=rows, avrechim=avrechim, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, fmt=fmt,
-                title=f"{hebcal.month_name(hm, hy)} {hy}")
+                title=f"{hebcal.month_name(hm, hy)} {hy}", lx_emp=expenses.employee_id(), lx_items=expenses.items(),
+                lx_total=expenses.total(), lx_from=lx_from, lx_months=months)
 
 
 @bp.route("/bonus/<int:bid>/delete", methods=["POST"])
