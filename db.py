@@ -131,6 +131,24 @@ CREATE TABLE IF NOT EXISTS gifts (
     created_at TEXT NOT NULL,
     added_by INTEGER
 );
+CREATE TABLE IF NOT EXISTS moreshet_ledger (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT,
+    cycle TEXT,
+    employee_id INTEGER,
+    report_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS moreshet_cycles (
+    cycle TEXT PRIMARY KEY,
+    due_json TEXT NOT NULL,
+    due_total REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    done_at TEXT
+);
 CREATE TABLE IF NOT EXISTS change_requests (
     id INTEGER PRIMARY KEY,
     employee_id INTEGER NOT NULL REFERENCES employees(id),
@@ -183,7 +201,8 @@ MIGRATIONS = {
                   ("in_night", "INTEGER NOT NULL DEFAULT 1"), ("in_day", "INTEGER NOT NULL DEFAULT 0"),
                   ("phone2", "TEXT"), ("phone2_mode", "TEXT NOT NULL DEFAULT 'none'"),
                   ("phone2_calls", "INTEGER NOT NULL DEFAULT 1"), ("moreshet_role", "TEXT"), ("moreshet_key", "TEXT"),
-                  ("moreshet_name", "TEXT"), ("tefila_reminder", "INTEGER")],
+                  ("moreshet_name", "TEXT"), ("tefila_reminder", "INTEGER"),
+                  ("moreshet_salary", "REAL")],
     "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'"), ("urgent", "INTEGER NOT NULL DEFAULT 0"), ("call_result", "TEXT")],
     "message_recipients": [("announced_at", "TEXT")],
     "tefila_entries": [("added_by", "INTEGER")],

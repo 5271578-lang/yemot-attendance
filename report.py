@@ -272,6 +272,8 @@ def run_moreshet_once():
 
 def run_once():
     """Send this month's report if due and not sent yet. Safe with several workers."""
+    import money
+    money.open_cycle()
     run_day_once()
     run_moreshet_once()
     import expenses
@@ -312,6 +314,8 @@ def start_background():
         while True:
             try:
                 tefila.run_reminders()
+                import money
+                money.run_reminder()
             except Exception as ex:
                 db.set_setting("reminder_last_error", f"{db.now().isoformat()} {ex}")
             time.sleep(60)

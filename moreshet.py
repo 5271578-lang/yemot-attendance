@@ -187,12 +187,42 @@ def build(today, base_url=""):
                        f"<td {td}>{x['amount']:,.2f}</td><td {td}>{escape(x['created_at'][:16].replace('T', ' '))}</td>"
                        f"<td {td}>{link}</td></tr>")
         out.append("</table>")
+    out.append(money_html(today, td, th))
     rng = f"{start.strftime('%d/%m/%Y')} עד {(end - timedelta(days=1)).strftime('%d/%m/%Y')}"
     html = (f'<div dir="rtl" style="font-family:Arial,sans-serif"><h2 style="color:#1f3a5f">מורשת הנחל: דיווחי הוצאות והכנסות</h2>'
             f"<p>דיווחים שנעשו בקו מ־{rng}</p>{''.join(out)}</div>")
     csv_lines = ["﻿סוג,מי,תאריך,סכום,דווח"] + [
         f"{'הוצאה' if x['kind'] == 'expense' else 'הכנסה'},{x['name']},{x['heb_date']},{x['amount']},{x['created_at'][:16]}" for x in rows]
     return f"מורשת הנחל - סיכום {rng}", html, "\n".join(csv_lines)
+
+
+def money_html(today, td, th):
+    """What to transfer on the 16th, and the money of the activity held by the treasurer."""
+    import money
+    from html import escape
+    money.open_cycle(today)
+    cy = money.cycle(money.cycle_of(today))
+    out = []
+    if cy:
+        out.append(f'<h3 style="color:#1f3a5f">להעביר ב־{money.TRANSFER_DAY} לחודש: {cy["left"]:,.2f} ש"ח</h3>')
+        out.append(f"<table style='border-collapse:collapse'><tr><th {th}>למי</th><th {th}>משכורת</th><th {th}>+ הוצאות</th>"
+                   f"<th {th}>- הכנסות חריגות</th><th {th}>להעביר</th></tr>")
+        for x in cy["due"]:
+            out.append(f"<tr><td {td}>{escape(x['name'])}</td><td {td}>{x['salary']:,.2f}</td><td {td}>{x['expenses']:,.2f}</td>"
+                       f"<td {td}>{x['income']:,.2f}</td><td {td}><b>{x['amount']:,.2f}</b></td></tr>")
+        out.append("</table>")
+        if cy["paid"]:
+            out.append(f"<p>כבר הועבר: {cy['paid']:,.2f} ש\"ח</p>")
+    bal = money.balance()
+    out.append(f'<h3 style="color:#1f3a5f">כסף הפעילות שאצלך: {bal:,.2f} ש"ח</h3>')
+    rows = money.ledger(25)
+    if rows:
+        out.append(f"<table style='border-collapse:collapse'><tr><th {th}>תאריך</th><th {th}>מה</th><th {th}>סכום</th></tr>")
+        for x in rows:
+            out.append(f"<tr><td {td}>{x['day']}</td><td {td}>{escape(x['note'] or '')}</td>"
+                       f"<td {td} dir='ltr'>{x['amount']:+,.2f}</td></tr>")
+        out.append("</table>")
+    return "".join(out)
 
 
 def due(now, hour=8):

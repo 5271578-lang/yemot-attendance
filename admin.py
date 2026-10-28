@@ -712,6 +712,25 @@ def moreshet_page():
 <td><a href="{{ url_for('admin.edit_employee', eid=e.id) }}">edit</a></td></tr>{% else %}<tr><td colspan="6" class="warn">Nobody yet</td></tr>{% endfor %}</table>
 <p class="muted">To add someone: Employees → edit → "Moreshet: Mashgiach / Manager" and his key. Someone who is not in the kollels:
 add him on the employees page, untick both kollels, and choose the Moreshet role.</p></div>
+<div class="box"><b>Money of the activity</b> (the treasurer's key 8 in Moreshet; reminder call from the 16th at 14:00 until confirmed)
+<p style="font-size:1.2em">Held by {{ tname or '(no treasurer set)' }}: <b dir="ltr">₪{{ '%.2f'|format(bal) }}</b></p>
+{% for cy in pend %}<p class="warn">To transfer for {{ cy.cycle }}: ₪{{ '%.2f'|format(cy.left) }} left
+({% for x in cy.due %}{{ x.name }} ₪{{ '%.2f'|format(x.amount) }}{{ ', ' if not loop.last }}{% endfor %}){% if cy.paid %} · paid ₪{{ '%.2f'|format(cy.paid) }}{% endif %}
+<form method="post" action="{{ url_for('admin.money_post') }}" style="display:inline"><input type="hidden" name="do" value="paid_all"><input type="hidden" name="cycle" value="{{ cy.cycle }}"><button>All transferred</button></form></p>{% endfor %}
+<form method="post" action="{{ url_for('admin.money_post') }}"><input type="hidden" name="do" value="add">
+Add: <select name="kind"><option value="income">Came in (+)</option><option value="expense">Expense (-)</option><option value="transfer">Transfer to someone (-)</option></select>
+₪ <input name="amount" type="number" step="0.01" required style="width:90px"> date <input name="day" type="date" value="{{ today }}">
+for <input name="note" required style="width:260px"> <button>Add</button></form>
+<table><tr><th>Date</th><th>What</th><th class="right">Amount</th><th></th></tr>
+{% for x in led %}<tr><td>{{ x.day }}</td><td dir="rtl">{{ x.note or '' }}</td><td class="right" dir="ltr">{{ '%+.2f'|format(x.amount) }}</td>
+<td><form method="post" action="{{ url_for('admin.money_post') }}" onsubmit="return confirm('Remove this line?')"><input type="hidden" name="do" value="delete"><input type="hidden" name="id" value="{{ x.id }}"><button>Remove</button></form></td></tr>
+{% else %}<tr><td colspan="4" class="muted">Nothing yet.</td></tr>{% endfor %}</table>
+<form method="post" action="{{ url_for('admin.money_post') }}"><input type="hidden" name="do" value="settings">
+Treasurer: <select name="treasurer"><option value="">-</option>{% for e in people %}<option value="{{ e.id }}" {{ 'selected' if e.id == tid else '' }}>{{ e.name }}</option>{% endfor %}</select>
+Comes in every month ₪ <input name="monthly" type="number" step="0.01" value="{{ monthly }}" style="width:90px"><br>
+Monthly salaries: {% for e in people %}{% if e.id != tid %}{{ e.name }} ₪ <input name="sal_{{ e.id }}" type="number" step="0.01" value="{{ e.moreshet_salary or '' }}" style="width:80px"> {% endif %}{% endfor %}
+<button>Save</button><div class="muted">On the 15th: salary + his expenses - his unusual income (reported from the 15th of last month to the 14th).
+The treasurer's own reports on keys 7 and 9 (and parents' standing orders reported on 9) go straight into this account.</div></form></div>
 <div class="box"><b>Expenses and unusual income</b> (keys 7 and 9). E-mailed on the 15th of every month to {{ email }}.
 <table><tr><th>Reported</th><th>Who</th><th>Kind</th><th>Date</th><th class="right">Amount</th><th>What for</th></tr>
 {% for x in rows %}<tr><td>{{ fmt(x.created_at) }}</td><td>{{ x.name }}</td><td>{{ 'Expense' if x.kind == 'expense' else 'Income' }}</td>
@@ -722,8 +741,34 @@ add him on the employees page, untick both kollels, and choose the Moreshet role
 {% for m in msgs %}<tr><td>{{ fmt(m.created_at) }}</td><td>{{ m.sender }}</td><td dir="rtl">{{ m.recipient_label }}</td>
 <td><audio controls preload="none" src="{{ url_for('admin.recording', mid=m.id) }}"></audio></td></tr>
 {% else %}<tr><td colspan="4" class="muted">No messages.</td></tr>{% endfor %}</table></div>"""
+    import money
+    tid = money.treasurer_id()
+    tname = next((e["name"] for e in people if e["id"] == tid), None)
     return page(body, people=people, rows=rows, msgs=msgs, fmt=fmt, roles=moreshet.ROLES, email=moreshet.EMAIL,
-                said=moreshet.spoken_name)
+                said=moreshet.spoken_name, bal=money.balance(), pend=money.pending(), led=money.ledger(),
+                tid=tid, tname=tname, monthly=money.monthly_in(), today=db.now().date().isoformat())
+
+
+@bp.route("/moreshet/money", methods=["POST"])
+def money_post():
+    import money
+    from datetime import date as _date
+    f = request.form
+    if f["do"] == "paid_all":
+        money.record_transfer(f["cycle"])
+    elif f["do"] == "add":
+        money.add(f["kind"], float(f["amount"]), f["note"], _date.fromisoformat(f["day"]) if f.get("day") else None)
+    elif f["do"] == "delete":
+        with db.connect() as c:
+            c.execute("DELETE FROM moreshet_ledger WHERE id=?", (int(f["id"]),))
+    elif f["do"] == "settings":
+        db.set_setting("money_treasurer", f.get("treasurer", ""))
+        db.set_setting("money_monthly_in", f.get("monthly") or str(money.MONTHLY_IN))
+        with db.connect() as c:
+            for k, v in f.items():
+                if k.startswith("sal_"):
+                    c.execute("UPDATE employees SET moreshet_salary=? WHERE id=?", (float(v) if v else None, int(k[4:])))
+    return redirect(url_for("admin.moreshet_page"))
 
 
 @bp.route("/moreshet/recording/<int:rid>")

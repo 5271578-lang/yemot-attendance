@@ -23,6 +23,7 @@ import hebcal
 import nbs
 import schedule
 import corrections
+import money
 import moreshet
 import tefila
 import trips
@@ -395,6 +396,9 @@ def main_menu(r):
         r.announce(r.t("moreshet_announce"))
     if moreshet.only_member(emp):
         return moreshet_menu(r)
+    if money.route_now(emp) and not r.s["data"].get("money_routed"):
+        r.s["data"]["money_routed"] = True                 # once a call: 0 then gives the usual menu
+        return money_menu(r)
     txt, keys = r.t("menu_main"), ["1", "2", "4", "5", "6", "9", "*"]
     if emp["is_driver"]:
         txt += ". " + r.t("menu_driver")
@@ -477,6 +481,9 @@ def moreshet_menu(r):
         txt.append(r.t("moreshet_new", n=n))
     txt.append(r.t("moreshet_menu"))
     keys = ["1", "2", "7", "9"]
+    if money.is_treasurer(me):
+        txt.append(r.t("money_menu_line"))
+        keys.append("8")
     if moreshet.only_member(me):
         txt.append(r.t("menu_switch"))
         keys.append("*")
@@ -494,6 +501,8 @@ def moreshet_choice(r, answer):
         return m_start_listening(r, me)
     if answer == "2":
         return m_send_menu(r)
+    if answer == "8" and money.is_treasurer(me):
+        return money_menu(r)
     if answer in ("7", "9"):
         kind = "expense" if answer == "7" else "income"
         return r.ask("m_amount", r.t("m_amount_" + kind), digits=None, timeout=15, kind=kind)
@@ -646,9 +655,66 @@ def m_report_ok(r, answer, kind, amount, day, rec):
     if answer != "1" or not moreshet.is_member(me):
         r.say(r.t("m_cancelled"))
         return moreshet_menu(r)
-    moreshet.save_report(me["id"], kind, amount, datetime.fromisoformat(day).date(), rec)
+    rid = moreshet.save_report(me["id"], kind, amount, datetime.fromisoformat(day).date(), rec)
+    money.from_report(me, kind, amount, datetime.fromisoformat(day).date(), rid)
     r.say(r.t("m_saved"))
     moreshet_menu(r)
+
+
+# -- 8 (the treasurer): money of the activity, confirming the monthly transfers (money.py)
+
+def say_money(r, x):
+    x = round(abs(x), 2)
+    shek, ag = int(x), round((x - int(x)) * 100)
+    return r.t("m_shekels", n=shek) + (r.t("m_agorot", n=ag) if ag else "")
+
+
+def money_menu(r):
+    me = employee(r)
+    if not money.is_treasurer(me):
+        return moreshet_menu(r)
+    bal = money.balance()
+    r.say(r.t("money_balance" if bal >= 0 else "money_balance_minus", amount=say_money(r, bal)))
+    ps = money.pending()
+    if not ps:
+        r.say(r.t("money_nothing_due"))
+        return moreshet_menu(r)
+    cy = ps[0]
+    who = ". ".join(r.t("money_due_person", name=x["name"], amount=say_money(r, x["amount"])) for x in cy["due"])
+    r.say(r.t("money_due", who=who))
+    if cy["paid"]:
+        r.say(r.t("money_paid_left", paid=say_money(r, cy["paid"]), left=say_money(r, cy["left"])))
+    r.ask("money_choice", r.t("money_menu", left=say_money(r, cy["left"])), allowed=["1", "2", "3"], cycle=cy["cycle"])
+
+
+@step
+def money_choice(r, answer, cycle):
+    me = employee(r)
+    if not money.is_treasurer(me):
+        return main_menu(r)
+    if answer == "1":
+        money.record_transfer(cycle)
+        r.say(r.t("money_all_saved"))
+        return money_menu(r)
+    if answer == "2":
+        return r.ask("money_partial", r.t("money_partial_ask"), digits=None, timeout=15, cycle=cycle)
+    if answer == "3":
+        money.snooze()
+        r.say(r.t("money_later"))
+    moreshet_menu(r)
+
+
+@step
+def money_partial(r, answer, cycle):
+    amount = moreshet.parse_amount(answer)
+    cy = money.cycle(cycle)
+    if amount is None or cy is None or amount > cy["left"] + 0.004:
+        r.say(r.t("m_bad_amount"))
+        return r.ask("money_partial", r.t("money_partial_ask"), digits=None, timeout=15, cycle=cycle)
+    money.record_transfer(cycle, amount)
+    money.snooze()
+    r.say(r.t("money_partial_saved", amount=say_money(r, amount)))
+    money_menu(r)
 
 
 # ---- 8: Mivtza Tefila B'Koach (tefila.py) --------------------------------

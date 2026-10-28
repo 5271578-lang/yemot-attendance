@@ -45,8 +45,8 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%'")
-        for t in ("change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
+        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%' OR key LIKE 'money_%'")
+        for t in ("moreshet_ledger", "moreshet_cycles", "change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
         rows = [("100", "Tech Mgr", "0501111111", "1111", "tech_manager", None, None, 40.0, 0, None),
@@ -1647,6 +1647,63 @@ def test_line_expenses_monthly_bonus():
     assert expenses.parse_lines("a = 9.90\nb=27\nbad") == [["a", 9.9], ["b", 27.0]]
     page_ = client.get("/admin/bonuses?hy=5787&hm=9", headers=AUTH).get_data(as_text=True)
     assert "Line expenses" in page_ and "36.90" in page_
+
+
+
+def test_moreshet_money_transfers_and_ledger():
+    import money, moreshet
+    from datetime import date, datetime as _D
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET name='ישראל טנגי', moreshet_role='manager', moreshet_key='6' WHERE emp_number='200'")
+        c.execute("UPDATE employees SET name='נפתלי שפירא', moreshet_role='mashgiach', moreshet_key='3' WHERE emp_number='300'")
+        c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,in_night,in_day,moreshet_role,moreshet_key) "
+                  "VALUES ('900','נתן יארבלום','0507777777','1480','employee',0,0,'mashgiach','4')")
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('moreshet_announced_' || (SELECT id FROM employees WHERE emp_number='200'), 'x')")
+    at(2026, 10, 28, 10, 0)
+    money.seed_once()
+    assert money.balance() == 3944.0                      # 3200 - 2800 + 4100 - 160.8 - 55.2 - 240 - 100
+    assert money.pending() == []
+    nf = emp("300")["id"]
+    # Naftali reports an expense of 100 on 1/11 (key 7)
+    at(2026, 11, 1, 12, 0)
+    moreshet.save_report(nf, "expense", 100, date(2026, 11, 1), "/8/x")
+    # the 15th: the month is fixed, 3200 comes in
+    at(2026, 11, 15, 9, 0)
+    assert money.open_cycle() == "2026-11"
+    cy = money.pending()[0]
+    assert [(x["name"], x["amount"]) for x in cy["due"]] == [("נפתלי שפירא", 1300), ("נתן יארבלום", 1600)]
+    html = moreshet.build(date(2026, 11, 15))[1]
+    assert "להעביר ב־16 לחודש: 2,900.00" in html and "כסף הפעילות שאצלך: 7,144.00" in html
+    # the 16th: not before 14:00; at 14:00 a reminder call, and calling the line goes straight there
+    calls = []
+    nbs.run_tts_calls = lambda texts, **k: (calls.append(texts) or (True, "1"))
+    assert money.run_reminder(_D(2026, 11, 16, 13, 0, tzinfo=db.TZ)) is None
+    money.run_reminder(_D(2026, 11, 16, 14, 0, tzinfo=db.TZ))
+    assert calls and "תזכורת לאשר את העברת המשכורות" in calls[-1]["0502222222"]
+    at(2026, 11, 16, 15, 0)
+    m = Call("0502222222"); t = m.start()
+    assert "להעביר החודש" in t and "לנפתלי שפירא, 1300 שקלים" in t
+    t = m.press("2")
+    t = m.press("1000#")
+    assert "נרשם שהועברו 1000 שקלים" in t and "נשאר להעביר 1900 שקלים" in t
+    t = m.press("3")                                       # not yet: tomorrow again
+    assert "מחר בשעה שתיים" in t
+    m = Call("0502222222"); t = m.start()
+    assert "להעביר החודש" not in t                         # once a call... a new call routes again
+    # next day: again; all transferred
+    at(2026, 11, 17, 16, 0)
+    m = Call("0502222222"); t = m.start()
+    assert "נשאר להעביר 1900" in t
+    t = m.press("1")
+    assert "נרשם שהכל הועבר" in t and money.pending() == []
+    assert money.balance() == 7144 - 2900
+    assert not money.route_now(emp("200"), _D(2026, 11, 18, 15, 0, tzinfo=db.TZ))
+    # the treasurer's own expense report goes into the ledger
+    rid = moreshet.save_report(emp("200")["id"], "expense", 50, date(2026, 11, 17), "/8/y")
+    money.from_report(emp("200"), "expense", 50, date(2026, 11, 17), rid)
+    assert money.balance() == 7144 - 2900 - 50
+    assert "Money of the activity" in client.get("/admin/moreshet", headers=AUTH).get_data(as_text=True)
 
 
 if __name__ == "__main__":
