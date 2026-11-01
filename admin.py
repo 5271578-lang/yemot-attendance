@@ -5,7 +5,8 @@ import os
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Blueprint, Response, redirect, render_template_string, request, url_for
+from flask import Blueprint, Response, abort, g, redirect, render_template_string, request, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import hebcal
@@ -58,13 +59,41 @@ def remember_address():
         pass
 
 
+# A second login that sees only Kollel Horaah (set on the Kollel Horaah page by the main admin).
+HORAAH_PAGES = {"admin.day_payroll", "admin.send_day_report", "admin.employees", "admin.edit_employee",
+                "admin.employee_month", "admin.add_attendance", "admin.edit_attendance", "admin.corrections",
+                "admin.horaah_guide"}
+
+
+def is_full():
+    return getattr(g, "role", "admin") == "admin"
+
+
+def horaah_login_ok(user, password):
+    u, h = db.get_setting("horaah_user"), db.get_setting("horaah_pw")
+    return bool(u and h and user == u and check_password_hash(h, password))
+
+
 @bp.before_request
 def auth():
     remember_address()
     a = request.authorization
-    if not ADMIN_PASSWORD or not a or a.username != ADMIN_USER or a.password != ADMIN_PASSWORD:
-        return Response("נדרשת כניסה" if ADMIN_PASSWORD else "יש להגדיר ADMIN_PASSWORD בשרת",
-                        401, {"WWW-Authenticate": 'Basic realm="Attendance"'})
+    if ADMIN_PASSWORD and a and a.username == ADMIN_USER and a.password == ADMIN_PASSWORD:
+        g.role = "admin"
+        return None
+    if a and horaah_login_ok(a.username, a.password):
+        g.role = "horaah"
+        if request.endpoint not in HORAAH_PAGES:
+            return redirect(url_for("admin.day_payroll"))
+        return None
+    return Response("נדרשת כניסה" if ADMIN_PASSWORD else "יש להגדיר ADMIN_PASSWORD בשרת",
+                    401, {"WWW-Authenticate": 'Basic realm="Attendance"'})
+
+
+def horaah_only_emp(e):
+    """The Kollel Horaah login: only avrechim of Kollel Horaah."""
+    if not is_full() and (e is None or not e["in_day"]):
+        abort(403)
 
 
 BASE = """<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -76,10 +105,12 @@ th,td{border-bottom:1px solid #e3e3e3;padding:7px 9px;text-align:right;font-size
 .warn{color:#b00020;font-weight:600}.box{background:#fff;padding:14px;margin:14px 0;border:1px solid #ddd}
 input,select,textarea{padding:5px;margin:3px 0 3px 6px;font-family:inherit}button{padding:6px 12px;background:#1f3a5f;color:#fff;border:0;cursor:pointer;font-family:inherit}
 .muted{color:#777}.right{text-align:left}h1{font-size:22px}.wrap{overflow-x:auto}.num{direction:ltr;unicode-bidi:embed}
-</style></head><body><nav><a href="{{ url_for('admin.payroll') }}">כולל חצות</a><a href="{{ url_for('admin.day_payroll') }}">כולל הוראה</a>
+</style></head><body><nav>{% if not full %}<a href="{{ url_for('admin.day_payroll') }}">כולל הוראה</a>
+<a href="{{ url_for('admin.employees', k='day') }}">אברכי הוראה</a><a href="{{ url_for('admin.corrections') }}">תיקונים</a>
+<a href="{{ url_for('admin.horaah_guide') }}">הוראות</a>{% else %}<a href="{{ url_for('admin.payroll') }}">כולל חצות</a><a href="{{ url_for('admin.day_payroll') }}">כולל הוראה</a>
 <a href="{{ url_for('admin.employees', k='night') }}">אברכי חצות</a><a href="{{ url_for('admin.employees', k='day') }}">אברכי הוראה</a><a href="{{ url_for('admin.corrections') }}">תיקונים</a>
 <a href="{{ url_for('admin.messages') }}">הודעות</a><a href="{{ url_for('admin.shuttles') }}">הסעות</a>
-<a href="{{ url_for('admin.import_page') }}">ייבוא</a><a href="{{ url_for('admin.registrations') }}">הרשמות</a><a href="{{ url_for('admin.tefila_page') }}">תפלה בכח</a><a href="{{ url_for('admin.gifts_page') }}">בונוסים</a><a href="{{ url_for('admin.moreshet_page') }}">מורשת הנחל</a><a href="{{ url_for('admin.requests_page') }}">בקשות</a></nav>
+<a href="{{ url_for('admin.import_page') }}">ייבוא</a><a href="{{ url_for('admin.registrations') }}">הרשמות</a><a href="{{ url_for('admin.tefila_page') }}">תפלה בכח</a><a href="{{ url_for('admin.gifts_page') }}">בונוסים</a><a href="{{ url_for('admin.moreshet_page') }}">מורשת הנחל</a><a href="{{ url_for('admin.requests_page') }}">בקשות</a><a href="{{ url_for('admin.horaah_guide') }}">הוראות להוראה</a>{% endif %}</nav>
 <main>{% block body %}{% endblock %}</main></body></html>"""
 
 
@@ -87,6 +118,7 @@ def page(body, **ctx):
     ctx.setdefault("data_months", data_months)
     ctx.setdefault("program", "night")
     ctx.setdefault("he", he)
+    ctx.setdefault("full", is_full())
     return render_template_string(BASE.replace("{% block body %}{% endblock %}", body), **ctx)
 
 
@@ -182,7 +214,7 @@ def payroll():
 הכל ביחד <b>{{ '{:,.0f}'.format(t.total) }}</b> · לכולל חצות ירושלים (סניף צפת) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 אור הצדיק <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
 <div class="muted">מירון (35 ללילה, 60 לנהג) ← ירושלים. בונוסי 70/80% ובונוסים נפרדים ← אור הצדיק. השאר: חצי חצי.</div></div>
-<p class="muted">חודש המלגה של הלילה: מראש חודש (גם א' דראש חודש) עד כ"ט. לפי לילה: 80 × החלק מזמן הכולל שנכח (2:30–7:30, בין הזמנים 3:30–7:30), +20 עד 10 דקות איחור,
+<p class="muted">חודש המלגה של הלילה: מראש חודש (גם א' דראש חודש) עד כ"ט. לפי לילה: 80 × החלק מזמן הכולל שנכח (<span class="num">2:30–7:30</span>, בין הזמנים <span class="num">3:30–7:30</span>), +20 עד 10 דקות איחור,
 +30 לפני ההתחלה. לילה בלי יציאה נחשב עד 7:30. אחוז הנוכחות לפי זמן בלבד.
 70% ← +200, 80% ← עוד +100. פחות מ־2 לילות שלמים או פחות מ־500 (בלי מירון) ← אין מלגה (0 באדום).
 מירון: 35 ללילה. נהג: 60 ללילה. תוספות = לילות אומן ותוספות למלגה שהוכנסו ידנית (חלק מהמלגה).
@@ -223,19 +255,22 @@ def employee_month(eid):
     hy, hm = month_args()
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
+        horaah_only_emp(e)
         nfirst, nlast = schedule.night_month_range(hy, hm)
         recs = [x for x in c.execute("SELECT * FROM attendance WHERE employee_id=? ORDER BY clock_in", (eid,)).fetchall()
                 if (x["program"] == "night" and nfirst <= schedule.session_date(db.parse(x["clock_in"])) <= nlast)
                 or (x["program"] == "day" and (x["heb_year"], x["heb_month"]) == (hy, hm))]
+        if not is_full():
+            recs = [x for x in recs if x["program"] == "day"]
         uman = c.execute("SELECT * FROM uman WHERE employee_id=? ORDER BY heb_year DESC", (eid,)).fetchall()
         bons = c.execute("SELECT * FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
                          (eid, hy, hm)).fetchall()
         gifts = c.execute("SELECT * FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=? ORDER BY created_at",
                           (eid, hy, hm)).fetchall()
     body = """
-<h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll', hy=hy, hm=hm) }}">→ חזרה</a> ·
+<h1>{{ e.name }} · {{ title }}</h1><p><a href="{{ url_for('admin.payroll' if full else 'admin.day_payroll', hy=hy, hm=hm) }}">→ חזרה</a> ·
 <a href="?hy={{py[0]}}&hm={{py[1]}}">▶ חודש קודם</a> · <a href="?hy={{ny[0]}}&hm={{ny[1]}}">חודש הבא ◀</a>
-<span class="muted"> · חודש הלילה {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; כולל הוראה: לפי החודש העברי{% endif %}</span></p>
+{% if full %}<span class="muted"> · חודש הלילה {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; כולל הוראה: לפי החודש העברי{% endif %}</span>{% endif %}</p>
 <form method="post" action="{{ url_for('admin.set_meron', eid=e.id, hy=hy, hm=hm) }}">
 <div class="wrap"><table><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th class="right">דקות</th>
 <th class="right">בסיס</th><th class="right">בזמן</th><th class="right">לילה ₪</th><th>מירון</th>{% if e.is_driver %}<th>נהג</th>{% endif %}<th>הערה</th><th></th></tr>
@@ -252,18 +287,18 @@ def employee_month(eid):
 <td><a href="{{ url_for('admin.edit_attendance', aid=a.id) }}">עריכה</a></td></tr>{% endfor %}</table></div>
 {% if pay %}<button style="margin-top:8px">שמירת מירון{{ ' / נהיגה' if e.is_driver else '' }}</button>
 <span class="muted"> מסמנים את הלילות שנסע למירון{{ ' / נהג בהסעה' if e.is_driver else '' }} ולוחצים שמירה.</span>{% endif %}</form>
-<div class="box"><b>החודש:</b> {{ sm.nights }} לילות · {{ sm.whole }} שלמים · {{ sm.early }} מוקדמים ·
+{% if full %}<div class="box"><b>החודש:</b> {{ sm.nights }} לילות · {{ sm.whole }} שלמים · {{ sm.early }} מוקדמים ·
 נוכחות {{ (sm.percent * 100)|round(1) }}% · מלגה {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(מתחת למינימום ← 0)</span>{% endif %}
-· מירון {{ sm.meron_nights }} ({{ sm.meron }}) · נהג {{ sm.drives }} ({{ sm.driver }}) · <b>סה"כ {{ sm.total }}</b></div>
+· מירון {{ sm.meron_nights }} ({{ sm.meron }}) · נהג {{ sm.drives }} ({{ sm.driver }}) · <b>סה"כ {{ sm.total }}</b></div>{% endif %}
 {% if dsm %}<div class="box"><b>כולל הוראה:</b> {% if dsm.vacation %}אין כולל החודש, ממוצע 3 החודשים האחרונים{% else %}
 {{ dsm.days }}/{{ dsm.held }} ימים · בזמן {{ dsm.kept }} · {{ dsm.hours }} שעות{% endif %} · <b>{{ '%.2f'|format(dsm.total) }}</b></div>{% endif %}
-{% if uman %}<div class="box"><b>אומן</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
+{% if uman and full %}<div class="box"><b>אומן</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
 <td>{{ 'נסע' if u.went else 'לא נסע' }}</td><td>{% if u.went %}{{ (u.percent * 100)|round(1) }}% · לילות: {{ u.nights or 'לא נמצאו' }}{% endif %}</td>
 </tr>{% endfor %}</table></div>{% endif %}
 <div class="box"><b>הוספת משמרת ידנית</b><form method="post" action="{{ url_for('admin.add_attendance', eid=e.id) }}">
 כניסה <input type="datetime-local" name="clock_in" required> יציאה <input type="datetime-local" name="clock_out">
-הערה <input name="note"> <button>הוספה</button></form></div>
-<div class="box"><b>בונוס נפרד</b> <span class="muted">(לא חלק מהמלגה: משולם תמיד, ולא נספר למינימום ולאחוזים)</span>
+הערה <input name="note"> <button>הוספה</button>{% if not full %} <span class="muted">(רק בשעות כולל הוראה, 14:00–20:00)</span>{% endif %}</form></div>
+{% if full %}<div class="box"><b>בונוס נפרד</b> <span class="muted">(לא חלק מהמלגה: משולם תמיד, ולא נספר למינימום ולאחוזים)</span>
 <table>{% for g in gifts %}<tr><td>{{ g.note or '' }}</td><td class="right">{{ '%.2f'|format(g.amount) }} ₪</td>
 <td class="muted">{{ fmt(g.created_at) }}{{ ' · בטלפון' if g.added_by and g.added_by > 0 else '' }}</td>
 <td><form method="post" action="{{ url_for('admin.delete_gift', gid=g.id) }}"><button>הסרה</button></form></td></tr>{% endfor %}</table>
@@ -273,7 +308,7 @@ def employee_month(eid):
 <td class="right">{{ '%.2f'|format(b.amount) }} ₪</td><td><form method="post" action="{{ url_for('admin.delete_bonus', bid=b.id) }}">
 <button>הסרה</button></form></td></tr>{% endfor %}</table>
 <form method="post" action="{{ url_for('admin.add_bonus', eid=e.id, hy=hy, hm=hm) }}">
-סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note" placeholder="לדוגמה: נהג הסעה"> <button>הוספת תוספת</button></form></div>"""
+סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note" placeholder="לדוגמה: נהג הסעה"> <button>הוספת תוספת</button></form></div>{% endif %}"""
     nights, by_night = month_nights(e, hy, hm, [x for x in recs if x["program"] == "night"])
     dsm = schedule.day_month_summary(e, hy, hm) if schedule.in_day(e) else None
     pay = {}
@@ -339,6 +374,10 @@ def heb_fields(dt):
 @bp.route("/employee/<int:eid>/attendance", methods=["POST"])
 def add_attendance(eid):
     t_in, t_out = parse_local(request.form["clock_in"]), parse_local(request.form.get("clock_out"))
+    with db.connect() as c:
+        horaah_only_emp(c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone())
+    if not is_full() and program_of(t_in) != "day":
+        abort(403)
     y, m, d = heb_fields(t_in)
     with db.connect() as c:
         rec, meron = meron_rule(c, eid, t_in)          # riders: 2:25, with Meron inside the shuttle window
@@ -354,6 +393,11 @@ def add_attendance(eid):
 def edit_attendance(aid):
     with db.connect() as c:
         a = c.execute("SELECT * FROM attendance WHERE id=?", (aid,)).fetchone()
+        if not is_full():
+            horaah_only_emp(c.execute("SELECT * FROM employees WHERE id=?", (a["employee_id"],)).fetchone())
+            if a["program"] != "day" or (request.method == "POST" and request.form.get("clock_in")
+                                         and program_of(parse_local(request.form["clock_in"])) != "day"):
+                abort(403)
         if request.method == "POST":
             if request.form.get("delete"):
                 c.execute("DELETE FROM attendance WHERE id=?", (aid,))
@@ -513,19 +557,19 @@ EMP_FORM = """<form method="post">
 <select name="phone2_mode" title="שיחות לטלפון הנוסף">{% for k, v in {'none': 'בלי שיחות אליו', 'shuttle': 'להתקשר אליו: רק הסעה', 'all': 'להתקשר אליו: הסעה והודעות'}.items() %}
 <option value="{{k}}" {% if e and e.phone2_mode==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="pin" placeholder="סיסמה (ריק = 1480)" value="{{ e.pin if e else '' }}" pattern="[0-9]{4,8}" title="4 עד 8 ספרות. ריק = 1480">
-<select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
+{% if full %}<select name="role">{% for k, v in roles.items() %}<option value="{{k}}" {% if e and e.role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="shift" placeholder="משמרת" value="{{ (e.shift or '') if e else '' }}">
 <select name="shuttle_group"><option value="">בלי הסעה</option>{% for g in (1,2) %}<option value="{{g}}" {% if e and e.shuttle_group==g %}selected{% endif %}>{{ 'מאור חיים (ר׳ אוריאל דרשן)' if g == 1 else 'דרום (ר׳ נפתלי שפירא)' }}</option>{% endfor %}</select>
-<input name="hourly_rate" type="number" step="0.01" placeholder="תעריף מיוחד (לא חובה)" value="{{ e.hourly_rate if e and e.hourly_rate is not none else '' }}">
-<label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> כולל חצות</label>
+<input name="hourly_rate" type="number" step="0.01" placeholder="תעריף מיוחד (לא חובה)" value="{{ e.hourly_rate if e and e.hourly_rate is not none else '' }}">{% endif %}
+{% if full %}<label><input type="checkbox" name="in_night" {% if (not e and not form_day) or (e and e.in_night) %}checked{% endif %}> כולל חצות</label>
 <label><input type="checkbox" name="in_day" {% if (not e and form_day) or (e and e.in_day) %}checked{% endif %}> כולל הוראה</label>
 <label><input type="checkbox" name="is_driver" {% if e and e.is_driver %}checked{% endif %}> נהג הסעה</label>
 <select name="moreshet_role" title="מורשת הנחל (שלוחה 00)"><option value="">לא במורשת הנחל</option>
 {% for k, v in {'mashgiach': 'מורשת: משגיח', 'manager': 'מורשת: מנהל'}.items() %}<option value="{{k}}" {% if e and e.moreshet_role==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 <input name="moreshet_key" placeholder="מקש במורשת (3-6, 8, 9)" title="הספרה שאחרים מקישים כדי להשאיר לו הודעה (7 = לכולם)" size="16" value="{{ (e.moreshet_key or '') if e else '' }}" pattern="[3-689]?">
-<input name="moreshet_name" placeholder="השם שנאמר במורשת (לדוגמה: נפתלי)" size="24" value="{{ (e.moreshet_name or '') if e else '' }}">
+<input name="moreshet_name" placeholder="השם שנאמר במורשת (לדוגמה: נפתלי)" size="24" value="{{ (e.moreshet_name or '') if e else '' }}">{% endif %}
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
-<input name="shuttle_calls" type="number" min="1" max="5" placeholder="שיחות הסעה (1-5)" title="כמה פעמים להתקשר ביציאת ההסעה - האברך קובע בטלפון" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">
+{% if full %}<input name="shuttle_calls" type="number" min="1" max="5" placeholder="שיחות הסעה (1-5)" title="כמה פעמים להתקשר ביציאת ההסעה - האברך קובע בטלפון" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">{% endif %}
 {% if e %}<label><input type="checkbox" name="active" {% if e.active %}checked{% endif %}> פעיל</label>{% endif %}
 <button>{{ 'שמירה' if e else 'הוספת אברך' }}</button></form>"""
 
@@ -547,6 +591,19 @@ def emp_values(form):
             form.get("moreshet_name", "").strip() or None)
 
 
+def limit_values(vals, old=None):
+    """The Kollel Horaah login cannot change the role, Chatzos, shuttle, driver or Moreshet fields."""
+    if is_full():
+        return vals
+    v = list(vals)
+    keep = {4: "role", 5: "shift", 6: "shuttle_group", 7: "hourly_rate", 8: "is_driver", 10: "shuttle_calls",
+            12: "in_night", 15: "phone2_mode", 16: "moreshet_role", 17: "moreshet_key", 18: "moreshet_name"}
+    for i, col in keep.items():
+        v[i] = old[col] if old is not None else {4: "employee", 8: 0, 12: 0, 15: "none"}.get(i)
+    v[13] = 1                                         # in Kollel Horaah
+    return tuple(v)
+
+
 def phone_taken(phone, eid=None):
     p = db.normalize_phone(phone or "")
     if not p:
@@ -560,6 +617,8 @@ def phone_taken(phone, eid=None):
 def employees():
     error = None
     kollel = request.args.get("k") if request.args.get("k") in ("night", "day", "none") else "night"
+    if not is_full():
+        kollel = "day"
     if request.method == "POST":
         try:
             if phone_taken(request.form.get("phone")) or phone_taken(request.form.get("phone2")):
@@ -568,7 +627,7 @@ def employees():
                 c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
                           "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,moreshet_role,moreshet_key,moreshet_name,joined_on) "
                           "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                          emp_values(request.form) + (db.now().date().isoformat(),))
+                          limit_values(emp_values(request.form)) + (db.now().date().isoformat(),))
             return redirect(url_for("admin.employees", k="day" if request.form.get("in_day") and not request.form.get("in_night") else kollel))
         except Exception as ex:                       # duplicate number etc.
             error = str(ex)
@@ -580,9 +639,9 @@ def employees():
     orphans = sum(1 for x in allemps if not x["in_night"] and not x["in_day"])
     no_id = sum(1 for x in emps if x["active"] and not x["id_number"])
     body = """<h1>{{ {'night': 'אברכי כולל חצות', 'day': 'אברכי כולל הוראה', 'none': 'אברכים שלא בשום כולל'}[kollel] }}</h1>
-<p><a href="{{ url_for('admin.employees', k='night') }}">כולל חצות</a> · <a href="{{ url_for('admin.employees', k='day') }}">כולל הוראה</a>
-{% if orphans or kollel == 'none' %} · <a class="warn" href="{{ url_for('admin.employees', k='none') }}">לא בשום כולל ({{ orphans }})</a>{% endif %}
-<span class="muted"> · {{ emps|length }} כאן. אברך ששייך לשני הכוללים מופיע בשני הדפים.</span></p>
+<p>{% if full %}<a href="{{ url_for('admin.employees', k='night') }}">כולל חצות</a> · <a href="{{ url_for('admin.employees', k='day') }}">כולל הוראה</a>{% endif %}
+{% if full and (orphans or kollel == 'none') %} · <a class="warn" href="{{ url_for('admin.employees', k='none') }}">לא בשום כולל ({{ orphans }})</a>{% endif %}
+<span class="muted"> · {{ emps|length }} כאן.{% if full %} אברך ששייך לשני הכוללים מופיע בשני הדפים.{% endif %}</span></p>
 {% if no_id %}<p class="warn">ל־{{ no_id }} אברכים פעילים כאן אין ת.ז.</p>{% endif %}
 {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 <div class="box"><b>הוספת אברך</b>""" + EMP_FORM + """</div>
@@ -611,6 +670,9 @@ def restore(eid):
 @bp.route("/employees/<int:eid>", methods=["GET", "POST"])
 def edit_employee(eid):
     error = None
+    with db.connect() as c:
+        old = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
+    horaah_only_emp(old)
     if request.method == "POST":
         if phone_taken(request.form.get("phone"), eid) or phone_taken(request.form.get("phone2"), eid):
             error = "מספר הטלפון הזה כבר שייך לאברך אחר"
@@ -619,8 +681,8 @@ def edit_employee(eid):
                 c.execute("UPDATE employees SET emp_number=?,name=?,phone=?,pin=?,role=?,shift=?,shuttle_group=?,"
                           "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, "
                           "moreshet_role=?, moreshet_key=?, moreshet_name=?, active=? WHERE id=?",
-                          emp_values(request.form) + (1 if request.form.get("active") else 0, eid))
-            return redirect(url_for("admin.employees", k="night" if request.form.get("in_night") else
+                          limit_values(emp_values(request.form), old) + (1 if request.form.get("active") else 0, eid))
+            return redirect(url_for("admin.employees", k="day" if not is_full() else "night" if request.form.get("in_night") else
                                     "day" if request.form.get("in_day") else "none"))
     with db.connect() as c:
         e = c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
@@ -808,6 +870,11 @@ def moreshet_recording(rid):
 from corrections import apply_correction, meron_rule  # noqa: E402  (shared with the phone)
 
 
+def horaah_correction(c, k):
+    e = c.execute("SELECT in_day FROM employees WHERE id=?", (k["employee_id"],)).fetchone()
+    return bool(e and e["in_day"]) and program_of(db.parse(k["requested_time"])) == "day"
+
+
 @bp.route("/corrections", methods=["GET", "POST"])
 def corrections():
     msg = None
@@ -815,6 +882,8 @@ def corrections():
         cid, action = int(request.form["id"]), request.form["action"]
         with db.connect() as c:
             corr = c.execute("SELECT * FROM corrections WHERE id=? AND status='pending'", (cid,)).fetchone()
+            if corr and not is_full() and not horaah_correction(c, corr):
+                abort(403)
             if corr and action == "approve":
                 ok, msg = apply_correction(c, corr)
                 if ok:
@@ -824,6 +893,8 @@ def corrections():
     with db.connect() as c:
         rows = c.execute("SELECT k.*, e.name, e.emp_number FROM corrections k JOIN employees e ON e.id=k.employee_id "
                          "ORDER BY k.status='pending' DESC, k.created_at DESC LIMIT 200").fetchall()
+        if not is_full():
+            rows = [k for k in rows if horaah_correction(c, k)]
     body = """<h1>תיקוני נוכחות</h1>{% if msg %}<p class="warn">{{ he(msg) }}</p>{% endif %}
 <p class="muted">בקשות שאברכים ביקשו בטלפון (שלוחה 5). שום דבר לא משתנה עד שמאשרים.
 אם נשכחו גם כניסה וגם יציאה באותו יום, מאשרים קודם את הכניסה.</p>
@@ -1049,12 +1120,16 @@ def day_payroll():
     days = schedule.day_dates(hy, hm)
     total = round(sum(r["total"] for r in rows), 2)
     body = """<h1>כולל הוראה · {{ title }}</h1>
-<p class="muted"><span class="num">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }}</span> · {{ days|length }} ימי כולל (א'–ה', 16:00–19:00, כניסה מ־15:00) ·
+<p class="muted"><span class="num">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }}</span> · {{ days|length }} ימי כולל (א'–ה', <span class="num">16:00–19:00</span>, כניסה מ־15:00) ·
 <a href="?hy={{py}}&hm={{pm}}">▶ חודש קודם</a> · <a href="?hy={{ny}}&hm={{nm}}">חודש הבא ◀</a> ·
 <br>חודשים עם נתונים: {% for y, m, name in data_months(program) %}<a href="?hy={{y}}&hm={{m}}" {% if y == hy and m == hm %}style="font-weight:700;text-decoration:none"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %} ·
 <form method="post" action="{{ url_for('admin.send_day_report', hy=hy, hm=hm) }}" style="display:inline">
 <button>לשלוח את הסיכום במייל עכשיו</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
 <div class="box"><b>סה"כ: {{ '{:,.0f}'.format(total) }}</b> · הכל משולם ע"י אור הצדיק</div>
+{% if full %}<div class="box"><b>כניסה לאתר למנהל כולל הוראה</b> <span class="muted">(רואה רק את כולל הוראה: הדף הזה, אברכי הוראה, תיקונים של כולל הוראה, והוראות)</span>
+<form method="post" action="{{ url_for('admin.horaah_login_set') }}">שם משתמש <input name="user" value="{{ h_user }}" required dir="ltr">
+סיסמה חדשה <input name="password" type="text" dir="ltr" placeholder="{{ 'לא לשנות' if h_user else '' }}" {{ '' if h_user else 'required' }}>
+<button>שמירה</button>{% if h_user %} <button name="off" value="1" style="background:#777" onclick="return confirm('לבטל את הכניסה של מנהל כולל הוראה?')">ביטול הכניסה</button>{% endif %}</form></div>{% endif %}
 <div class="wrap"><table><tr><th>שם</th><th class="right">ימים</th><th class="right">בזמן</th><th class="right">שעות</th>
 <th class="right">נוכחות</th><th class="right">תשלום שעות</th><th class="right">תשלום הגעה בזמן</th><th class="right">סה"כ ₪</th></tr>
 {% for r in rows %}<tr><td><a href="{{ url_for('admin.employee_month', eid=r.emp.id, hy=hy, hm=hm) }}">{{ r.emp.name }}</a></td>
@@ -1068,7 +1143,73 @@ def day_payroll():
 לכל יום שהגיע עד 16:00. ניסן ותשרי: ממוצע 3 החודשים האחרונים. אב: א'–ז' לפי נוכחות, ושאר החודש לפי הממוצע.
 אין כולל בחנוכה, פורים, שושן פורים, צומות, ערב שבועות, אסרו חג שבועות, ל"ג בעומר, ומח' אב עד א' אלול.</p>"""
     return page(body, program="day", rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last, days=days,
-                total=total, title=hebcal.heb_month_title(hm, hy), msg=request.args.get("msg"))
+                total=total, title=hebcal.heb_month_title(hm, hy), msg=request.args.get("msg"),
+                h_user=db.get_setting("horaah_user") or "")
+
+
+@bp.route("/day/login", methods=["POST"])
+def horaah_login_set():
+    """Only the main admin gets here (the Horaah login is sent back to its own pages)."""
+    if request.form.get("off"):
+        db.set_setting("horaah_user", "")
+        db.set_setting("horaah_pw", "")
+        return redirect(url_for("admin.day_payroll", msg="הכניסה של מנהל כולל הוראה בוטלה"))
+    user = request.form.get("user", "").strip()
+    if not user or user == ADMIN_USER:
+        return redirect(url_for("admin.day_payroll", msg="שם משתמש לא תקין"))
+    db.set_setting("horaah_user", user)
+    if request.form.get("password"):
+        db.set_setting("horaah_pw", generate_password_hash(request.form["password"]))
+    return redirect(url_for("admin.day_payroll", msg="נשמר. מנהל כולל הוראה נכנס עם השם והסיסמה האלה"))
+
+
+@bp.route("/guide/horaah")
+def horaah_guide():
+    """Instructions for the Kollel Horaah manager: the phone and this site. Printable."""
+    return page(HORAAH_GUIDE)
+
+
+HORAAH_GUIDE = """<style>@media print{nav,.noprint{display:none}body{background:#fff}.box{border:0;padding:0}}
+.guide h2{font-size:18px;color:#1f3a5f;margin:22px 0 6px}.guide li{margin:4px 0}.guide .k{display:inline-block;min-width:22px;text-align:center;
+background:#1f3a5f;color:#fff;border-radius:4px;padding:0 5px;font-weight:700}</style>
+<div class="guide"><h1>הוראות למנהל כולל הוראה</h1>
+<p class="noprint"><button onclick="window.print()">הדפסה</button></p>
+<div class="box"><h2>בטלפון</h2>
+<p>מתקשרים לקו הנוכחות מהטלפון שרשום במערכת. אם מתקשרים מטלפון אחר, מקישים מספר אברך וסיסמה.
+בכל תפריט: <span class="k">0</span> חוזר לתפריט הראשי. במקום שמקלידים מספר: <span class="k">*</span> חוזר לתפריט הראשי.</p>
+<ul>
+<li><span class="k">1</span> <b>עדכון כניסה</b> לכולל (אפשר מ־15:00). <span class="k">2</span> יציאה חריגה, אם יוצאים לפני הסוף.</li>
+<li><span class="k">4</span> <b>הודעות</b>:
+ <span class="k">1</span> לשמוע הודעות שקיבלת · <span class="k">2</span> לשלוח הודעה · <span class="k">3</span> לשמוע את ההודעות ששלחת ומי שמע אותן.<br>
+ בשליחת הודעה: <span class="k">2</span> לכל כולל הוראה · <span class="k">6</span> לאברך אחד (אומרים את שמו, או מקישים מספר אברך או ת.ז) ·
+ <span class="k">7</span> לכמה אברכים · <span class="k">8</span> למי שנוכח עכשיו. אחרי ההקלטה אפשר לשמוע אותה, לאשר או להקליט מחדש.
+ ההודעה מגיעה גם אליך, כדי שתדע שהיא יצאה.</li>
+<li><span class="k">5</span> <b>תיקוני נוכחות</b>: <span class="k">1</span> תיקון שלך · <span class="k">2</span> אישור הבקשות של האברכים.
+ לכל בקשה: <span class="k">1</span> אישור · <span class="k">2</span> דחייה · <span class="k">3</span> לבקשה הבאה.
+ אם אברך שכח גם כניסה וגם יציאה באותו יום, מאשרים קודם את הכניסה.</li>
+<li><span class="k">6</span> <b>מצב</b>: <span class="k">1</span> המצב שלך · <span class="k">2</span> מצב של אברך אחר (אומרים את שמו) ·
+ <span class="k">3</span> מי נוכח עכשיו. שם: <span class="k">1</span> מי לא נוכח · <span class="k">2</span> הודעה למי שנוכח.</li>
+<li><span class="k">9</span> <b>הגדרות וכלים</b>:
+ <span class="k">2</span> שינוי סיסמה · <span class="k">3</span> שפה ·
+ <span class="k">6</span> רישום אברך חדש (טלפון, ת.ז, כולל - <span class="k">2</span> לכולל הוראה, ושם בדיבור; מספר האברך נקבע לבד ומתחיל ב־1, הסיסמה הראשונה 1480) ·
+ <span class="k">7</span> עריכת פרטי אברך · <span class="k">8</span> בונוס נפרד לאברך ·
+ <span class="k">9</span> פעולה בדיבור: אומרים מה לעשות, למשל "מי נמצא בכולל", "מה המצב של פלוני", "תאשר את התיקון של פלוני". שום דבר לא משתנה בלי הקשה 1 לאישור.</li>
+</ul>
+<p class="muted">אתה רואה ושולח רק לאברכי כולל הוראה.</p></div>
+<div class="box"><h2>באתר</h2>
+<p>נכנסים לכתובת האתר עם שם המשתמש והסיסמה שקיבלת. רואים רק את כולל הוראה.</p>
+<ul>
+<li><b>כולל הוראה</b>: סיכום החודש לכל אברך - ימים, הגעה בזמן, שעות, אחוז נוכחות והסכום. מעבר בין חודשים: "חודש קודם" / "חודש הבא".
+ לוחצים על שם אברך כדי לראות את כל הכניסות והיציאות שלו בחודש.</li>
+<li><b>בדף של אברך</b>: "עריכה" ליד כניסה - לתקן שעה או למחוק. "הוספת משמרת ידנית" - כניסה ויציאה שנשכחו (רק בשעות כולל הוראה).</li>
+<li><b>אברכי הוראה</b>: רשימת האברכים. "הוספת אברך" למעלה - מספר אברך, שם, ת.ז, טלפון, סיסמה (ריק = 1480). "עריכה" ליד אברך - לתקן פרטים, או להוריד את הסימון "פעיל" כשהוא עוזב.</li>
+<li><b>תיקונים</b>: בקשות התיקון שאברכי כולל הוראה ביקשו בטלפון (שלוחה 5). "אישור" או "דחייה". שום דבר לא משתנה עד שמאשרים.</li>
+</ul></div>
+<div class="box"><h2>כללי כולל הוראה</h2>
+<ul><li>ימים א'–ה', <span class="num">16:00–19:00</span>. אפשר להיכנס מ־15:00.</li>
+<li>800 ש"ח לחודש לפי השעות שנכח, ו־200 ש"ח לחודש לפי הימים שהגיע עד 16:00.</li>
+<li>ניסן ותשרי: ממוצע 3 החודשים האחרונים. אב: א'–ז' לפי נוכחות, ושאר החודש לפי הממוצע.</li>
+<li>אין כולל בחנוכה, פורים, שושן פורים, צומות, ערב שבועות, אסרו חג שבועות, ל"ג בעומר, ומח' אב עד א' אלול.</li></ul></div></div>"""
 
 
 @bp.route("/day/send-report", methods=["POST"])

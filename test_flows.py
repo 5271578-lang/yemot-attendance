@@ -1706,6 +1706,36 @@ def test_moreshet_money_transfers_and_ledger():
     assert "כספי הפעילות" in client.get("/admin/moreshet", headers=AUTH).get_data(as_text=True)
 
 
+
+def test_horaah_login_sees_only_kollel_horaah():
+    import base64 as _b
+    seed()
+    with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key IN ('horaah_user','horaah_pw')")
+        c.execute("UPDATE employees SET in_day=1, in_night=0 WHERE emp_number='303'")
+    r = client.post("/admin/day/login", headers=AUTH, data={"user": "horaah", "password": "5555"})
+    assert r.status_code == 302
+    H = {"Authorization": "Basic " + _b.b64encode(b"horaah:5555").decode()}
+    assert client.get("/admin/", headers={"Authorization": "Basic " + _b.b64encode(b"horaah:wrong").decode()}).status_code == 401
+    r = client.get("/admin/", headers=H)
+    assert r.status_code == 302 and "/admin/day" in r.headers["Location"]
+    assert client.get("/admin/moreshet", headers=H).status_code == 302
+    page_ = client.get("/admin/day", headers=H).get_data(as_text=True)
+    assert "No Shuttle" in page_ and "כולל חצות</a>" not in page_ and "כניסה לאתר למנהל כולל הוראה" not in page_
+    lst = client.get("/admin/employees?k=night", headers=H).get_data(as_text=True)
+    assert "No Shuttle" in lst and "Worker A1" not in lst and 'name="in_night"' not in lst
+    assert client.get(f"/admin/employee/{emp('300')['id']}", headers=H).status_code == 403
+    assert client.get(f"/admin/employee/{emp('303')['id']}", headers=H).status_code == 200
+    assert client.get(f"/admin/employees/{emp('300')['id']}", headers=H).status_code == 403
+    client.post("/admin/employees?k=day", headers=H, data={"emp_number": "150", "name": "חדש", "role": "tech_manager", "in_night": "on"})
+    n = emp("150")
+    assert n["in_day"] == 1 and n["in_night"] == 0 and n["role"] == "employee"
+    # night hours cannot be added by this login
+    assert client.post(f"/admin/employee/{emp('303')['id']}/attendance", headers=H,
+                       data={"clock_in": "2026-11-17T02:30"}).status_code == 403
+    assert "הוראות למנהל כולל הוראה" in client.get("/admin/guide/horaah", headers=H).get_data(as_text=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:
