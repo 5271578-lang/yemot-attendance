@@ -454,7 +454,7 @@ def test_trip_registration_key_7():
     rows = trips.signups("teveria_5787")
     assert sorted(x["choice"] for x in rows) == ["2", "2"]
     html = client.get("/admin/registrations", headers=AUTH).data.decode()
-    assert "<b>2</b> registered" in html
+    assert "<b>2</b> נרשמו" in html
     at(2026, 10, 19, 15, 1)                                           # Monday 15:01: closed
     t = menu_call("0503333331").press("7")
     assert "טבריה" not in t and "להרשמה" not in Call("0503333331").start()
@@ -494,7 +494,7 @@ def test_tefila_bekoach_key_8():
     c = menu_call("0503333332"); c.press("8"); c.press("1")
     assert [x["entries"] for x in tefila.totals()] == [2, 1]
     html = client.post("/admin/tefila", headers=AUTH, data={"action": "draw"}).data.decode()
-    assert "Draw result" in html and "כרטיס טיסה לאומן" in html
+    assert "תוצאות ההגרלה" in html and "כרטיס טיסה לאומן" in html
     assert len(tefila.draws()) == 1 and len(tefila.draws()[0]["winners"]) == 2   # only 2 avrechim -> 2 winners
     at(2026, 12, 13, 5, 30)                                           # after Zos Chanuka
     assert not tefila.is_open()
@@ -757,7 +757,7 @@ def test_manager_approves_corrections_and_adds_tefila_by_phone():
     # admin page: add by hand for yesterday
     client.post("/admin/tefila", headers=AUTH, data={"action": "add", "day": "2026-10-18", "employee_id": [str(emp("301")["id"])]})
     assert len(tefila.entries_of_day("2026-10-18")) == 1
-    assert "added by hand" in client.get("/admin/tefila?day=2026-10-18", headers=AUTH).data.decode()
+    assert "נוסף ידנית" in client.get("/admin/tefila?day=2026-10-18", headers=AUTH).data.decode()
 
 
 def test_separate_bonus_by_phone_and_admin():
@@ -777,11 +777,11 @@ def test_separate_bonus_by_phone_and_admin():
     client.post(f"/admin/employee/{emp('303')['id']}/gift?hy={hy}&hm={hm}", headers=AUTH, data={"amount": "50", "note": "x"})
     assert schedule.month_summary(emp("303"), hy, hm)["gifts"] == 200
     html = client.get(f"/admin/?hy={hy}&hm={hm}", headers=AUTH).data.decode()
-    assert "separate bonuses 200" in html
+    assert "בונוסים נפרדים 200" in html
     client.post(f"/admin/bonuses?hy={hy}&hm={hm}", headers=AUTH,
                 data={"employee_id": [str(emp("300")["id"]), str(emp("301")["id"])], "amount": "100", "note": "Chanuka"})
     html = client.get(f"/admin/bonuses?hy={hy}&hm={hm}", headers=AUTH).data.decode()
-    assert "Chanuka" in html and "400.00" in html and "by Site Mgr A (phone)" in html
+    assert "Chanuka" in html and "400.00" in html and "ע\"י Site Mgr A (בטלפון)" in html
 
 
 def test_moreshet_hanachal_00():
@@ -841,7 +841,7 @@ def test_moreshet_hanachal_00():
     assert "125.50" in html and "נתן יארבלום" in html
     assert moreshet.parse_heb_date("3013", date(2026, 11, 17)) is None or True
     assert moreshet.parse_amount("12*5") == 12.5 and moreshet.parse_amount("0") is None
-    assert "Moreshet" in client.get("/admin/moreshet", headers=AUTH).data.decode()
+    assert "מורשת הנחל" in client.get("/admin/moreshet", headers=AUTH).data.decode()
     assert moreshet.spoken_name({"name": "הרב משה פרץ", "moreshet_name": None, "moreshet_key": "8"}) == "משה"
     # the manager can find himself (e.g. a bonus for himself)
     m = menu_call("0502222222"); m.press("9"); m.press("8")
@@ -934,7 +934,7 @@ def test_forward_messages_urgent_to_kollel_chatzos():
     t = Call("0503333331").start()
     assert "הודעה חשובה" not in t                                       # heard: not again
     page_ = client.get("/admin/messages", headers=AUTH).get_data(as_text=True)
-    assert "Stop playing it at the start" in page_ and "Calls: OK" in page_
+    assert "להפסיק להשמיע בתחילת השיחה" in page_ and "שיחות: OK" in page_
     client.post(f"/admin/messages/{msg['id']}/action", headers=AUTH, data={"do": "stop"})
     with db.connect() as c:
         assert c.execute("SELECT urgent FROM messages WHERE id=?", (msg["id"],)).fetchone()[0] == 0
@@ -1047,7 +1047,7 @@ def test_admin_pages_and_payroll():
         assert client.get(p, headers=AUTH).status_code == 200, p
     r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "1234",
                                                              "role": "employee", "phone": "0503333331"})
-    assert b"already belongs" in r.data
+    assert "כבר שייך לאברך אחר".encode() in r.data
     r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "500", "name": "New", "pin": "",
                                                              "role": "employee", "phone": "0509999999", "language": "yi"})
     assert r.status_code == 302 and emp("500")["language"] == "yi" and emp("500")["pin"] == "1480"
@@ -1221,7 +1221,7 @@ def test_removed_after_two_counted_months():
     assert "נמחקת" not in Call("0503333331").start()                   # was eligible in Adar
     assert "נמחקת" not in Call("0502222222").start()                   # managers are never removed
     r = client.get("/admin/employees", headers=AUTH)
-    assert b"removed (2 months)" in r.data
+    assert "הוסר (חודשיים)".encode() in r.data
     client.post(f"/admin/employees/{emp('303')['id']}/restore", headers=AUTH)
     assert "נמחקת" not in Call("0503333334").start()
 
@@ -1270,10 +1270,10 @@ def test_import_old_system_file():
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
     html = r.data.decode()
-    assert r.status_code == 200 and "<b>0</b> records to import" in html and "6 with no matching avrech" in html
+    assert r.status_code == 200 and "<b>0</b> רשומות לייבוא" in html and "6 בלי אברך מתאים" in html
     token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
     r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "create_and_import"})
-    assert "Imported 6 records" in r.data.decode() and "Created 1 new" in r.data.decode()
+    assert "יובאו 6 רשומות" in r.data.decode() and "נוצרו 1 אברכים חדשים" in r.data.decode()
     e = emp("123456782")
     assert e["id_number"] == "123456782" and e["pin"] == "1480" and "משה" in e["name"]
     a = attendance("123456782")
@@ -1282,14 +1282,14 @@ def test_import_old_system_file():
     # importing the same file again adds nothing
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
-    assert "6 already there" in r.data.decode()
+    assert "6 כבר קיימות" in r.data.decode()
     # matched by ID for an existing avrech with a different name spelling
     seed()
     with db.connect() as c:
         c.execute("UPDATE employees SET id_number='123456782', name='Moshe Y' WHERE emp_number='303'")
     r = client.post("/admin/import", headers=AUTH, data={"file": (_io.BytesIO(raw), "old.csv")},
                     content_type="multipart/form-data")
-    assert "<b>6</b> records to import" in r.data.decode() and "Moshe Y" in r.data.decode()
+    assert "<b>6</b> רשומות לייבוא" in r.data.decode() and "Moshe Y" in r.data.decode()
 
 
 def test_import_excel_day_hours_and_warnings():
@@ -1315,12 +1315,12 @@ def test_import_excel_day_hours_and_warnings():
     r = client.post("/admin/import", headers=AUTH, data={"file": [(_io.BytesIO(raw), "a.xlsx"), (_io.BytesIO(raw), "b.xlsx")]},
                     content_type="multipart/form-data")
     html = r.data.decode()
-    assert "<b>2</b> records to import" in html and "2 repeated in the files" in html
-    assert "not marked as Kollel Horaah" in html and "has no ID number" in html
-    assert "does not belong to any avrech" in html and "פלוני" in html
+    assert "<b>2</b> רשומות לייבוא" in html and "2 חוזרות בקבצים" in html
+    assert "לא מסומן ככולל הוראה" in html and "אין ת.ז במערכת" in html
+    assert "לא שייך לאף אברך" in html and "פלוני" in html
     token = re.search(r'name="token" value="([0-9a-f]+)"', html).group(1)
     r = client.post("/admin/import", headers=AUTH, data={"token": token, "action": "import"})
-    assert "Imported 2 records" in r.data.decode()
+    assert "יובאו 2 רשומות" in r.data.decode()
     progs = sorted(a["program"] for a in attendance("303"))
     assert progs == ["day", "night"]
 
@@ -1357,7 +1357,7 @@ def test_employees_split_by_kollel():
     none = client.get("/admin/employees?k=none", headers=AUTH).data.decode()
     n303 = emp("303")["name"]
     n300 = emp("300")["name"]
-    assert n303 in day and n303 not in night and n300 in none and n300 not in night and "In no kollel (1)" in night
+    assert n303 in day and n303 not in night and n300 in none and n300 not in night and "לא בשום כולל (1)" in night
 
 
 def test_waiting_messages_and_newest_first():
@@ -1489,7 +1489,7 @@ def test_additional_phone():
     assert "שלום Worker A1" in o.press("3331")                          # signs in with it too
     r = client.post("/admin/employees", headers=AUTH, data={"emp_number": "600", "name": "X", "role": "employee",
                                                              "phone": "0509999990", "phone2": "0587777777"})
-    assert b"already belongs" in r.data
+    assert "כבר שייך לאברך אחר".encode() in r.data
     r = client.post(f"/admin/employees/{emp('301')['id']}", headers=AUTH, data={
         "emp_number": "301", "name": "Worker A2", "role": "employee", "phone": "0503333332", "phone2": "0581111222",
         "pin": "3332", "in_night": "on", "active": "on"})
@@ -1646,7 +1646,7 @@ def test_line_expenses_monthly_bonus():
     assert g["amount"] == 36.9 and (g["heb_year"], g["heb_month"]) == (5787, 9) and "הוצאות הקו" in g["note"]
     assert expenses.parse_lines("a = 9.90\nb=27\nbad") == [["a", 9.9], ["b", 27.0]]
     page_ = client.get("/admin/bonuses?hy=5787&hm=9", headers=AUTH).get_data(as_text=True)
-    assert "Line expenses" in page_ and "36.90" in page_
+    assert "הוצאות הקו, נוספות" in page_ and "36.90" in page_
 
 
 
@@ -1703,7 +1703,7 @@ def test_moreshet_money_transfers_and_ledger():
     rid = moreshet.save_report(emp("200")["id"], "expense", 50, date(2026, 11, 17), "/8/y")
     money.from_report(emp("200"), "expense", 50, date(2026, 11, 17), rid)
     assert money.balance() == 7144 - 2900 - 50
-    assert "Money of the activity" in client.get("/admin/moreshet", headers=AUTH).get_data(as_text=True)
+    assert "כספי הפעילות" in client.get("/admin/moreshet", headers=AUTH).get_data(as_text=True)
 
 
 if __name__ == "__main__":

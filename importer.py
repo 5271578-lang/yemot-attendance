@@ -165,7 +165,7 @@ def read_rows(raw):
             continue
         h = find_header(rows)
         if h is None:
-            errors.append(f"sheet '{title}': no 'כניסה' column" if title else "no 'כניסה' column found")
+            errors.append(f"גיליון '{title}': אין עמודת 'כניסה'" if title else "לא נמצאה עמודת 'כניסה'")
             continue
         header = [clean(c) for c in rows[h]]
         idx = {}
@@ -194,7 +194,7 @@ def read_rows(raw):
                         "first": first, "last": last, "in": cin, "out": cout,
                         "program": program_of(cin) if cin else None})
     if not out:
-        return [], "; ".join(errors) or "empty file"
+        return [], "; ".join(errors) or "קובץ ריק"
     return out, None
 
 
@@ -249,30 +249,30 @@ def warnings(rows):
         day = sum(1 for r in rs if r["program"] == "day")
         night = len(rs) - day
         if day and not e["in_day"]:
-            out.append(f"{e['name']} is not marked as Kollel Horaah, but has {day} day-hour records "
-                       f"(they will be imported as Kollel Horaah).")
+            out.append(f"{e['name']} לא מסומן ככולל הוראה, אבל יש לו {day} רשומות בשעות היום "
+                       f"(הן ייובאו ככולל הוראה).")
         if night and not e["in_night"]:
-            out.append(f"{e['name']} is not marked as Kollel Chatzos, but has {night} night-hour records.")
+            out.append(f"{e['name']} לא מסומן ככולל חצות, אבל יש לו {night} רשומות בשעות הלילה.")
         if not e["id_number"]:
-            out.append(f"{e['name']} has no ID number (ת.ז) in the system.")
+            out.append(f"ל{e['name']} אין ת.ז במערכת.")
     missing_id = sorted({r["name"] for r in rows if r["emp"] is None and r["name"] and not r["id"]})
     for n in missing_id:
-        out.append(f"{n} - no ID number in the file and no matching avrech.")
+        out.append(f"{n} - אין ת.ז בקובץ ואין אברך מתאים.")
     unmatched = {}
     for r in rows:
         if r["emp"] is None:
-            unmatched.setdefault((r["sheet"], r["name"] or "(no name)"), 0)
-            unmatched[(r["sheet"], r["name"] or "(no name)")] += 1
+            unmatched.setdefault((r["sheet"], r["name"] or "(בלי שם)"), 0)
+            unmatched[(r["sheet"], r["name"] or "(בלי שם)")] += 1
     for (sheet, name), n in unmatched.items():
-        where = f"Sheet '{sheet}': " if sheet else ""
-        out.append(f"{where}{name} - {n} records belong to no avrech in the system.")
+        where = f"גיליון '{sheet}': " if sheet else ""
+        out.append(f"{where}{name} - {n} רשומות שלא שייכות לאף אברך במערכת.")
     sheets = {}
     for r in rows:
         sheets.setdefault(r["sheet"], []).append(r)
     if len(sheets) > 1:
         for s, rs in sheets.items():
             if all(r["emp"] is None for r in rs):
-                out.append(f"Sheet '{s}' does not belong to any avrech.")
+                out.append(f"הגיליון '{s}' לא שייך לאף אברך.")
     return out
 
 

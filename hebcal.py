@@ -131,3 +131,35 @@ def next_month(y, m):
 def format_date(g: date, lang="en"):
     y, m, d = from_gregorian(g)
     return f"{d} {month_name(m, y, lang)} {y}"
+
+
+# ---- Hebrew numerals (for the admin pages) -------------------------------------------
+
+_ONES = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"]
+_TENS = ["", "י", "כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ"]
+_HUNDREDS = ["", "ק", "ר", "ש", "ת", "תק", "תר", "תש", "תת", "תתק"]
+
+
+def gematria(n):
+    """15 -> ט"ו, 21 -> כ"א, 5787 -> תשפ"ז (the thousands are left out)."""
+    n %= 1000
+    s = _HUNDREDS[n // 100]
+    rest = n % 100
+    if rest == 15:
+        s += "טו"
+    elif rest == 16:
+        s += "טז"
+    else:
+        s += _TENS[rest // 10] + _ONES[rest % 10]
+    return s[:-1] + '"' + s[-1] if len(s) > 1 else s + "'"
+
+
+def heb_month_title(m, y):
+    """'כסלו תשפ"ז'"""
+    return f"{month_name(m, y, 'he')} {gematria(y)}"
+
+
+def heb_date(g: date):
+    """'כ"א חשוון תשפ"ז'"""
+    y, m, d = from_gregorian(g)
+    return f"{gematria(d)} {month_name(m, y, 'he')} {gematria(y)}"
