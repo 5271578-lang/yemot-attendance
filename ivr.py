@@ -1520,6 +1520,15 @@ def voice_action(r, answer):
                    kind=r.t("fix_kind_in" if k["kind"] == "in" else "fix_kind_out"), when=say_when(r, db.parse(k["requested_time"])))
         return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
                      act={"action": "correction", "cid": cid, "approve": approve})
+    if kind in ("attendance", "meron", "many"):
+        items = a.get("items") if kind == "many" else [a]
+        acts = [x for x in (_attendance_item(x, ids) for x in items or []) if x]
+        if not acts or len(acts) != len(items or []):
+            r.say(r.t("voice_error"))
+            return _voice_retry(r, "action")
+        what = ". ".join(_attendance_text(r, x, ids) for x in acts)
+        return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
+                     act={"action": "attendance", "items": acts})
     if kind == "status":
         return status_of(r, who, name=True)
     if kind == "present":
@@ -1536,6 +1545,65 @@ def voice_action(r, answer):
         return _voice_retry(r, "action")
     r.say(r.t("voice_error"))
     _voice_retry(r, "action")
+
+
+def _hm(v):
+    m = re.fullmatch(r"(\d{1,2}):?(\d{2})", str(v or "").strip())
+    return (int(m.group(1)), int(m.group(2))) if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else None
+
+
+def _attendance_item(a, scope):
+    """A checked attendance / Meron change, or None."""
+    if not isinstance(a, dict) or _int(a.get("employee_id")) not in scope:
+        return None
+    d = assistant.parse_day(a.get("date"), db.now().date() + timedelta(days=1))
+    if d is None:
+        return None
+    if a.get("action") == "meron":
+        return {"kind": "meron", "eid": _int(a["employee_id"]), "date": d.isoformat()}
+    if a.get("action") != "attendance":
+        return None
+    t_in, t_out = _hm(a.get("in")), _hm(a.get("out"))
+    if not (a.get("whole") or t_in or t_out):
+        return None
+    return {"kind": "attendance", "eid": _int(a["employee_id"]), "date": d.isoformat(), "whole": bool(a.get("whole")),
+            "in": t_in, "out": t_out}
+
+
+def _night_time(d, hm):
+    """A time on the night of morning `d`: from 20:00 it is the evening before."""
+    day = d - timedelta(days=1) if hm[0] >= 20 else d
+    return datetime(day.year, day.month, day.day, hm[0], hm[1], tzinfo=db.TZ)
+
+
+def _attendance_text(r, x, scope):
+    d = datetime.fromisoformat(x["date"]).date()
+    name, day = scope[x["eid"]]["name"], f"{d.day} ל{d.month}"
+    if x["kind"] == "meron":
+        return r.t("voice_meron", name=name, day=day)
+    if x["whole"]:
+        return r.t("voice_whole", name=name, day=day)
+    parts = []
+    if x["in"]:
+        parts.append(r.t("voice_in", time=r.time(_night_time(d, x["in"]))))
+    if x["out"]:
+        parts.append(r.t("voice_out", time=r.time(_night_time(d, x["out"]))))
+    return r.t("voice_times", name=name, day=day, what=", ".join(parts))
+
+
+def do_attendance(x):
+    """Returns True if done."""
+    d = datetime.fromisoformat(x["date"]).date()
+    if x["kind"] == "meron":
+        return corrections.set_meron(x["eid"], d)
+    if x["whole"]:
+        return corrections.whole_night(x["eid"], d)[0]
+    ok = True
+    if x["in"]:
+        ok = corrections.manager_change(x["eid"], "in", _night_time(d, tuple(x["in"])))[0]
+    if ok and x["out"]:
+        ok = corrections.manager_change(x["eid"], "out", _night_time(d, tuple(x["out"])))[0]
+    return ok
 
 
 def _int(v):
@@ -1561,6 +1629,11 @@ def voice_ok(r, answer, act):
         return main_menu(r)
     if act["action"] == "correction":
         return review_choice(r, "1" if act["approve"] else "2", [act["cid"]], 0)
+    if act["action"] == "attendance":
+        scope = {e["id"] for e in manager_scope(me)}
+        failed = [x for x in act["items"] if x["eid"] not in scope or not do_attendance(x)]
+        r.say(r.t("voice_done") if not failed else r.t("voice_part_failed", n=len(failed)))
+        return main_menu(r)
     if act["action"] == "request":
         assistant.save_request(me, act["text"])
         r.say(r.t("voice_request_saved"))

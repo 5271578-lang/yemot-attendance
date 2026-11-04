@@ -29,6 +29,10 @@ ACTIONS = """Actions (answer with exactly one JSON object, nothing else):
 {"action": "present"}                                                          who is in the kollel now
 {"action": "message", "to": "night"|"day"|"night_no_shuttle"|"present"|"managers"}   record a message to a group
 {"action": "message_one", "employee_id": <id>}                                 record a message to one avrech
+{"action": "attendance", "employee_id": <id>, "date": "YYYY-MM-DD", "in": "HH:MM" or null, "out": "HH:MM" or null, "whole": true|false}
+    set a night's clock-in and/or exit (whole = a whole night). "date" is the date of the MORNING of that night
+    (a night is from midnight on; "the night of the 15th" / "15th" = morning of the 15th). Several nights: a JSON list of these.
+{"action": "meron", "employee_id": <id>, "date": "YYYY-MM-DD"}                  mark that night as a Meron night
 {"action": "request", "text": "<the request in Hebrew>"}                       anything else: a change to the system itself
 {"action": "unclear", "question": "<short Hebrew question to ask back>"}       not clear which avrech / what to do
 Rules: use only ids from the lists. Names are spoken and transcribed by speech recognition, so match by sound
@@ -74,8 +78,14 @@ def interpret(spoken, people, correction_ids, today=None):
                                 "messages": [{"role": "user", "content": spoken}]})
         r.raise_for_status()
         txt = "".join(b.get("text", "") for b in r.json().get("content", []))
-        m = re.search(r"\{.*\}", txt, re.S)
-        return json.loads(m.group(0)) if m else {"action": "error", "why": "no answer"}
+        m = re.search(r"\[.*\]|\{.*\}", txt, re.S)
+        if not m:
+            return {"action": "error", "why": "no answer"}
+        got = json.loads(m.group(0))
+        if isinstance(got, list):
+            items = [x for x in got if isinstance(x, dict)]
+            return items[0] if len(items) == 1 else {"action": "many", "items": items}
+        return got
     except (requests.RequestException, ValueError) as ex:
         code = getattr(getattr(ex, "response", None), "status_code", None)
         return {"action": "error", "why": f"HTTP {code}" if code else type(ex).__name__}

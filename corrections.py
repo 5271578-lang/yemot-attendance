@@ -53,6 +53,33 @@ def apply_correction(c, corr):
     return True, "clock-out set"
 
 
+# ---- changes a manager makes himself (voice actions, 9 -> 9 -> 1) ---------------------
+
+def manager_change(emp_id, kind, t):
+    """Set a clock-in ('in') or an exit ('out') at `t`, by the same rules as an approved correction."""
+    with db.connect() as c:
+        return apply_correction(c, {"employee_id": emp_id, "kind": kind, "requested_time": t.isoformat()})
+
+
+def whole_night(emp_id, d):
+    """A whole night on morning `d`: in at the kollel start, out at its end."""
+    a, b = schedule.window(d)
+    ok, msg = manager_change(emp_id, "in", a)
+    if not ok:
+        return ok, msg
+    return manager_change(emp_id, "out", b)
+
+
+def set_meron(emp_id, d, on=True):
+    """Mark the night of morning `d` as a Meron night. False if he has no clock-in that night."""
+    rows = schedule.nights_for(emp_id, d, d).get(d, [])
+    if not rows:
+        return False
+    with db.connect() as c:
+        c.executemany("UPDATE attendance SET meron=? WHERE id=?", [(1 if on else 0, r["id"]) for r in rows])
+    return True
+
+
 def decide(cid, approve):
     """Approve or reject one pending request. Returns (ok, explanation) or None if it is not pending."""
     with db.connect() as c:

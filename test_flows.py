@@ -1736,6 +1736,43 @@ def test_horaah_login_sees_only_kollel_horaah():
     assert "הוראות למנהל כולל הוראה" in client.get("/admin/guide/horaah", headers=H).get_data(as_text=True)
 
 
+
+def test_voice_attendance_whole_night_times_exit_and_meron():
+    import assistant
+    seed()
+    at(2026, 11, 4, 9, 0)
+    assistant.API_KEY = "x"
+    eid = emp("303")["id"]
+    assistant.interpret = lambda *a, **k: {"action": "many", "items": [
+        {"action": "attendance", "employee_id": eid, "date": "2026-10-15", "whole": True},
+        {"action": "attendance", "employee_id": eid, "date": "2026-10-16", "in": "3:30"},
+        {"action": "attendance", "employee_id": eid, "date": "2026-10-18", "in": "05:00"}]}
+    m = menu_call("0501111111"); m.press("9"); m.press("9"); m.press("1")
+    t = m.press("תוסיף נוכחות")
+    assert "לרשום לNo Shuttle לילה שלם ב15 ל10" in t and "כניסה בשעה 3 ו 30 דקות" in t and "כניסה בשעה 5" in t
+    assert "בוצע" in m.press("1")
+    a = attendance("303")
+    got = [(x["clock_in"][:16], (x["clock_out"] or "")[:16]) for x in a]
+    assert ("2026-10-15T02:30", "2026-10-15T07:30") in got
+    assert any(i.startswith("2026-10-16T03:30") for i, o in got) and any(i.startswith("2026-10-18T05:00") for i, o in got)
+    # exit 7:30 today and a Meron night
+    from datetime import datetime as _D
+    with db.connect() as c:
+        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, program) VALUES (?,?,5787,8,23,'night')",
+                  (eid, _D(2026, 11, 4, 2, 30, tzinfo=db.TZ).isoformat()))
+    assistant.interpret = lambda *a, **k: [{"action": "attendance", "employee_id": eid, "date": "2026-11-04", "out": "7:30"},
+                                           {"action": "meron", "employee_id": eid, "date": "2026-11-04"}]
+    assistant.interpret = (lambda f: (lambda *a, **k: {"action": "many", "items": f()}))(lambda: [
+        {"action": "attendance", "employee_id": eid, "date": "2026-11-04", "out": "7:30"},
+        {"action": "meron", "employee_id": eid, "date": "2026-11-04"}])
+    m = menu_call("0501111111"); m.press("9"); m.press("9"); m.press("1")
+    t = m.press("יציאה ומירון")
+    assert "יציאה בשעה 7 ו 30 דקות" in t and "לילה של מירון" in t
+    m.press("1")
+    r = [x for x in attendance("303") if x["clock_in"].startswith("2026-11-04")][0]
+    assert r["clock_out"].startswith("2026-11-04T07:30") and r["meron"] == 1
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:
