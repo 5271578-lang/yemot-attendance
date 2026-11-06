@@ -13,6 +13,7 @@ TRIPS = [
         "key": "7",
         "audience": "night",
         "title": "נסיעה לקברי הצדיקים, ליל ערב ראש חודש כסלו תשפ\"ז (ליל שני)",
+        "opens": datetime(2026, 11, 6, 8, 0, tzinfo=db.TZ),
         "until": datetime(2026, 11, 8, 12, 0, tzinfo=db.TZ),          # Sunday, 12:00
         "menu": {"he": "להרשמה לנסיעה לקברי הצדיקים הקישו 7",
                  "en": "To register for the trip to the graves of the tzadikim, press 7"},
@@ -94,7 +95,7 @@ def for_employee(trip, emp):
 def open_trips(emp=None, now=None):
     """Registrations open now (and meant for this avrech). A closed one keeps its data and admin page."""
     now = now or db.now()
-    return [t for t in TRIPS if now < t["until"] and (emp is None or for_employee(t, emp))]
+    return [t for t in TRIPS if t.get("opens", now) <= now < t["until"] and (emp is None or for_employee(t, emp))]
 
 
 MANAGER_DAYS_AFTER = 14     # managers can still hear the status this long after it closed
@@ -103,7 +104,7 @@ MANAGER_DAYS_AFTER = 14     # managers can still hear the status this long after
 def recent_trips(now=None):
     from datetime import timedelta
     now = now or db.now()
-    return [t for t in TRIPS if now < t["until"] + timedelta(days=MANAGER_DAYS_AFTER)]
+    return [t for t in TRIPS if t.get("opens", now) <= now < t["until"] + timedelta(days=MANAGER_DAYS_AFTER)]
 
 
 def by_key(key, emp=None, now=None):
