@@ -1773,6 +1773,25 @@ def test_voice_attendance_whole_night_times_exit_and_meron():
     assert r["clock_out"].startswith("2026-11-04T07:30") and r["meron"] == 1
 
 
+
+def test_bonus_payer_split():
+    import schedule
+    seed()
+    eid = emp("301")["id"]
+    for amount, payer in ((100, "ohr"), (60, "jerusalem"), (40, "shared")):
+        client.post(f"/admin/employee/{eid}/gift?hy=5787&hm=9", headers=AUTH, data={"amount": amount, "note": "x", "payer": payer})
+    s = schedule.month_summary(emp("301"), 5787, 9)
+    assert s["gifts"] == 200 and s["gifts_by"] == {"ohr": 100, "jerusalem": 60, "shared": 40}
+    base = dict(s, gifts=0, gifts_by={})
+    a, b = schedule.payer_split(s), schedule.payer_split(base)
+    assert round(a["jerusalem"] - b["jerusalem"], 2) == 80 and round(a["ohr_hatzadik"] - b["ohr_hatzadik"], 2) == 120
+    with db.connect() as c:
+        gid = c.execute("SELECT id FROM gifts WHERE payer='ohr'").fetchone()[0]
+    client.post(f"/admin/gift/{gid}/payer", headers=AUTH, data={"payer": "jerusalem", "back": "list"})
+    assert schedule.month_summary(emp("301"), 5787, 9)["gifts_by"]["jerusalem"] == 160
+    assert "כולל חצות ירושלים: 160.00" in client.get("/admin/bonuses?hy=5787&hm=9", headers=AUTH).get_data(as_text=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

@@ -26,6 +26,7 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ROLE_NAMES = {"employee": "אברך", "onsite_manager": "מנהל במקום", "tech_manager": "מנהל טכני"}
 LANGS = {"he": "עברית", "en": "אנגלית", "yi": "אידיש"}
+PAYERS = {"ohr": "אור הצדיק", "jerusalem": "כולל חצות ירושלים", "shared": "משותף (חצי חצי)"}
 STATUS_HE = {   # texts kept in English in the database, shown in Hebrew
     "pending": "ממתין", "approved": "אושר", "rejected": "נדחה", "sent": "נשלח", "removed by admin": "הוסר ידנית",
     "called": "התקשרו", "tzintuk": "צינתוק", "call failed": "השיחה נכשלה", "calling every 15 min": "מתקשרים כל רבע שעה",
@@ -119,6 +120,7 @@ def page(body, **ctx):
     ctx.setdefault("program", "night")
     ctx.setdefault("he", he)
     ctx.setdefault("full", is_full())
+    ctx.setdefault("payers", PAYERS)
     return render_template_string(BASE.replace("{% block body %}{% endblock %}", body), **ctx)
 
 
@@ -213,7 +215,7 @@ def payroll():
 {% if t.gifts %}בונוסים נפרדים {{ '{:,.0f}'.format(t.gifts) }} · {% endif %}
 הכל ביחד <b>{{ '{:,.0f}'.format(t.total) }}</b> · לכולל חצות ירושלים (סניף צפת) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 אור הצדיק <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
-<div class="muted">מירון (35 ללילה, 60 לנהג) ← ירושלים. בונוסי 70/80% ובונוסים נפרדים ← אור הצדיק. השאר: חצי חצי.</div></div>
+<div class="muted">מירון (35 ללילה, 60 לנהג) ← ירושלים. בונוסי 70/80% ← אור הצדיק. בונוסים נפרדים ← לפי מה שסומן בכל בונוס. השאר: חצי חצי.</div></div>
 <p class="muted">חודש המלגה של הלילה: מראש חודש (גם א' דראש חודש) עד כ"ט. לפי לילה: 80 × החלק מזמן הכולל שנכח (<span class="num">2:30–7:30</span>, בין הזמנים <span class="num">3:30–7:30</span>), +20 עד 10 דקות איחור,
 +30 לפני ההתחלה. לילה בלי יציאה נחשב עד 7:30. אחוז הנוכחות לפי זמן בלבד.
 70% ← +200, 80% ← עוד +100. פחות מ־2 לילות שלמים או פחות מ־500 (בלי מירון) ← אין מלגה (0 באדום).
@@ -300,10 +302,12 @@ def employee_month(eid):
 הערה <input name="note"> <button>הוספה</button>{% if not full %} <span class="muted">(רק בשעות כולל הוראה, 14:00–20:00)</span>{% endif %}</form></div>
 {% if full %}<div class="box"><b>בונוס נפרד</b> <span class="muted">(לא חלק מהמלגה: משולם תמיד, ולא נספר למינימום ולאחוזים)</span>
 <table>{% for g in gifts %}<tr><td>{{ g.note or '' }}</td><td class="right">{{ '%.2f'|format(g.amount) }} ₪</td>
+<td><form method="post" action="{{ url_for('admin.gift_payer', gid=g.id) }}" style="margin:0">משלם: <select name="payer" onchange="this.form.submit()">{% for k, v in payers.items() %}<option value="{{ k }}" {{ 'selected' if (g.payer or 'ohr') == k else '' }}>{{ v }}</option>{% endfor %}</select></form></td>
 <td class="muted">{{ fmt(g.created_at) }}{{ ' · בטלפון' if g.added_by and g.added_by > 0 else '' }}</td>
 <td><form method="post" action="{{ url_for('admin.delete_gift', gid=g.id) }}"><button>הסרה</button></form></td></tr>{% endfor %}</table>
 <form method="post" action="{{ url_for('admin.add_gift', eid=e.id, hy=hy, hm=hm) }}">
-סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note"> <button>הוספת בונוס נפרד</button></form></div>
+סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note">
+משלם <select name="payer">{% for k, v in payers.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select> <button>הוספת בונוס נפרד</button></form></div>
 <div class="box"><b>תוספות למלגה החודש</b> <span class="muted">(חלק מהמלגה)</span><table>{% for b in bons %}<tr><td>{{ b.note or '' }}</td>
 <td class="right">{{ '%.2f'|format(b.amount) }} ₪</td><td><form method="post" action="{{ url_for('admin.delete_bonus', bid=b.id) }}">
 <button>הסרה</button></form></td></tr>{% endfor %}</table>
@@ -438,9 +442,24 @@ def add_bonus(eid):
 def add_gift(eid):
     hy, hm = month_args()
     with db.connect() as c:
-        c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by) VALUES (?,?,?,?,?,?,?)",
-                  (eid, hy, hm, float(request.form["amount"]), request.form.get("note"), db.now().isoformat(), -1))
+        c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by, payer) VALUES (?,?,?,?,?,?,?,?)",
+                  (eid, hy, hm, float(request.form["amount"]), request.form.get("note"), db.now().isoformat(), -1, payer_arg()))
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+def payer_arg():
+    p = request.form.get("payer", "ohr")
+    return p if p in PAYERS else "ohr"
+
+
+@bp.route("/gift/<int:gid>/payer", methods=["POST"])
+def gift_payer(gid):
+    with db.connect() as c:
+        g = c.execute("SELECT * FROM gifts WHERE id=?", (gid,)).fetchone()
+        c.execute("UPDATE gifts SET payer=? WHERE id=?", (payer_arg(), gid))
+    if request.form.get("back") == "list":
+        return redirect(url_for("admin.gifts_page", hy=g["heb_year"], hm=g["heb_month"]))
+    return redirect(url_for("admin.employee_month", eid=g["employee_id"], hy=g["heb_year"], hm=g["heb_month"]))
 
 
 @bp.route("/gift/<int:gid>/delete", methods=["POST"])
@@ -492,8 +511,8 @@ def gifts_page():
         amount = float(request.form["amount"])
         with db.connect() as c:
             for eid in request.form.getlist("employee_id"):
-                c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by) "
-                          "VALUES (?,?,?,?,?,?,?)", (int(eid), hy, hm, amount, request.form.get("note"), db.now().isoformat(), -1))
+                c.execute("INSERT INTO gifts(employee_id, heb_year, heb_month, amount, note, created_at, added_by, payer) "
+                          "VALUES (?,?,?,?,?,?,?,?)", (int(eid), hy, hm, amount, request.form.get("note"), db.now().isoformat(), -1, payer_arg()))
         return redirect(url_for("admin.gifts_page", hy=hy, hm=hm))
     with db.connect() as c:
         rows = c.execute("SELECT g.*, e.name, e.emp_number, b.name AS by_name FROM gifts g JOIN employees e ON e.id=g.employee_id "
@@ -503,11 +522,12 @@ def gifts_page():
     py, pm = hebcal.prev_month(hy, hm)
     ny, nm = hebcal.next_month(hy, hm)
     body = """<h1>בונוסים נפרדים · {{ title }}</h1>
-<p class="muted">לא חלק מהמלגה: משולמים תמיד, ולא נספרים למינימום ולאחוזים. משולמים ע"י אור הצדיק.
+<p class="muted">לא חלק מהמלגה: משולמים תמיד, ולא נספרים למינימום ולאחוזים. ליד כל בונוס בוחרים מי משלם: אור הצדיק, כולל חצות ירושלים, או משותף חצי חצי.
 <a href="?hy={{py}}&hm={{pm}}">▶ חודש קודם</a> · <a href="?hy={{ny}}&hm={{nm}}">חודש הבא ◀</a></p>
 <div class="box"><b>הוספה</b><form method="post">
 <select name="employee_id" multiple size="7" style="min-width:280px" required>{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
-סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note"> <button>הוספת בונוס</button>
+סכום ₪ <input name="amount" type="number" step="0.01" required> עבור <input name="note">
+משלם <select name="payer">{% for k, v in payers.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select> <button>הוספת בונוס</button>
 <span class="muted">Ctrl + לחיצה כדי לתת את אותו בונוס לכמה אברכים.</span></form></div>
 <div class="box"><b>הוצאות הקו, נוספות אוטומטית כל חודש</b>
 <form method="post"><input type="hidden" name="line_exp" value="1">
@@ -518,13 +538,15 @@ def gifts_page():
 <span class="muted">הוצאה אחת בכל שורה: שם = סכום בש"ח. סה"כ עכשיו: ₪{{ '%.2f'|format(lx_total) }}.
 נוסף פעם אחת בתחילת כל חודש של כולל חצות כבונוס נפרד ("הוצאות הקו"). שינוי חל מהחודש הבא שיתווסף.</span>
 <button>שמירה</button></form></div>
-<div class="wrap"><table><tr><th>מס'</th><th>שם</th><th class="right">סכום</th><th>עבור</th><th>נוסף</th><th></th></tr>
+<div class="wrap"><table><tr><th>מס'</th><th>שם</th><th class="right">סכום</th><th>עבור</th><th>משלם</th><th>נוסף</th><th></th></tr>
 {% for g in rows %}<tr><td>{{ g.emp_number }}</td><td><a href="{{ url_for('admin.employee_month', eid=g.employee_id, hy=hy, hm=hm) }}">{{ g.name }}</a></td>
 <td class="right">{{ '%.2f'|format(g.amount) }}</td><td>{{ g.note or '' }}</td>
+<td><form method="post" action="{{ url_for('admin.gift_payer', gid=g.id) }}" style="margin:0"><input type="hidden" name="back" value="list"><select name="payer" onchange="this.form.submit()">{% for k, v in payers.items() %}<option value="{{ k }}" {{ 'selected' if (g.payer or 'ohr') == k else '' }}>{{ v }}</option>{% endfor %}</select></form></td>
 <td class="muted">{{ fmt(g.created_at) }}{% if g.by_name %} · ע"י {{ g.by_name }} (בטלפון){% endif %}</td>
 <td><form method="post" action="{{ url_for('admin.delete_gift', gid=g.id) }}"><input type="hidden" name="back" value="list"><button>הסרה</button></form></td></tr>
-{% else %}<tr><td colspan="6" class="muted">אין בונוסים החודש.</td></tr>{% endfor %}
-{% if rows %}<tr><td></td><td><b>סה"כ</b></td><td class="right"><b>{{ '%.2f'|format(rows|sum(attribute='amount')) }}</b></td><td colspan="3"></td></tr>{% endif %}
+{% else %}<tr><td colspan="7" class="muted">אין בונוסים החודש.</td></tr>{% endfor %}
+{% if rows %}<tr><td></td><td><b>סה"כ</b></td><td class="right"><b>{{ '%.2f'|format(rows|sum(attribute='amount')) }}</b></td><td colspan="4" class="muted">
+{% for k, v in payers.items() %}{% set n = rows|selectattr('payer', 'equalto', k)|sum(attribute='amount') %}{% if n %}{{ v }}: {{ '%.2f'|format(n) }} · {% endif %}{% endfor %}</td></tr>{% endif %}
 </table></div>"""
     months, (y, m) = [], (hy, hm)
     for _ in range(14):

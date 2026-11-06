@@ -467,8 +467,10 @@ def month_summary(emp, hy, hm, until=None):
     with db.connect() as c:
         extras = c.execute("SELECT COALESCE(SUM(amount),0) FROM bonuses WHERE employee_id=? AND heb_year=? AND heb_month=?",
                            (emp["id"], hy, hm)).fetchone()[0]
-        gifts = c.execute("SELECT COALESCE(SUM(amount),0) FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=?",
-                          (emp["id"], hy, hm)).fetchone()[0]
+        by_payer = {r["payer"]: r["s"] for r in c.execute(
+            "SELECT payer, COALESCE(SUM(amount),0) s FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=? GROUP BY payer",
+            (emp["id"], hy, hm))}
+        gifts = sum(by_payer.values())
     nightly = round(sum(n["total"] for n in nights), 2)
     base = round(sum(n["base"] for n in nights), 2)
     timing = sum(n["bonus"] for n in nights)
@@ -489,6 +491,7 @@ def month_summary(emp, hy, hm, until=None):
         "stipend": stipend, "eligible": eligible, "meron_nights": meron_nights, "meron": meron,
         "drives": drives, "driver": driver, "rate_ok": rate_ok, "meron_nightly": meron_nightly,
         "gifts": round(gifts, 2),      # separate bonus: not part of the stipend, the minimum or the percents
+        "gifts_by": {k: round(v, 2) for k, v in by_payer.items()},   # who pays it: ohr / jerusalem / shared
         "total": round((stipend if eligible else 0) + meron + driver + gifts, 2) if rate_ok else None,
     }
 
@@ -556,14 +559,17 @@ def payer_split(s):
     else:
         shared, bonus = 0.0, 0
     meron = round(s["meron"] + s["driver"], 2)
-    gifts = s.get("gifts", 0)                      # separate bonuses -> Ohr Hatzadik
+    gifts = s.get("gifts", 0)                      # separate bonuses: as marked on each one
+    by = s.get("gifts_by") or {"ohr": gifts}
+    g_jer = by.get("jerusalem", 0) + by.get("shared", 0) * SPLIT_SHARE
+    g_ohr = gifts - g_jer
     return {
         "kollel": round(shared + bonus, 2),
         "meron": meron,
         "gifts": round(gifts, 2),
         "total": round(shared + bonus + meron + gifts, 2),
-        "jerusalem": round(shared * SPLIT_SHARE + meron, 2),
-        "ohr_hatzadik": round(shared * (1 - SPLIT_SHARE) + bonus + gifts, 2),
+        "jerusalem": round(shared * SPLIT_SHARE + meron + g_jer, 2),
+        "ohr_hatzadik": round(shared * (1 - SPLIT_SHARE) + bonus + g_ohr, 2),
     }
 
 

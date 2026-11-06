@@ -203,6 +203,7 @@ MIGRATIONS = {
                   ("phone2_calls", "INTEGER NOT NULL DEFAULT 1"), ("moreshet_role", "TEXT"), ("moreshet_key", "TEXT"),
                   ("moreshet_name", "TEXT"), ("tefila_reminder", "INTEGER"),
                   ("moreshet_salary", "REAL")],
+    "gifts": [("payer", "TEXT NOT NULL DEFAULT 'ohr'")],
     "messages": [("channel", "TEXT NOT NULL DEFAULT 'kollel'"), ("urgent", "INTEGER NOT NULL DEFAULT 0"), ("call_result", "TEXT")],
     "message_recipients": [("announced_at", "TEXT")],
     "tefila_entries": [("added_by", "INTEGER")],
