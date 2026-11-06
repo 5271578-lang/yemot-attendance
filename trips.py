@@ -9,6 +9,40 @@ import db
 
 TRIPS = [
     {
+        "id": "kivrei_tzadikim_kislev_5787",
+        "key": "7",
+        "audience": "night",
+        "title": "נסיעה לקברי הצדיקים, ליל ערב ראש חודש כסלו תשפ\"ז (ליל שני)",
+        "until": datetime(2026, 11, 8, 12, 0, tzinfo=db.TZ),          # Sunday, 12:00
+        "menu": {"he": "להרשמה לנסיעה לקברי הצדיקים הקישו 7",
+                 "en": "To register for the trip to the graves of the tzadikim, press 7"},
+        # TTS: no quotes or hyphens; numbers in words
+        "intro": {
+            "he": "הגעת לשלוחת ההרשמה לנסיעה לקברי הצדיקים, בעזרת השם בליל שני, ליל ערב ראש חודש כסלו. "
+                  "סדר הנסיעה. יציאה בשעה שתים עשרה ארבעים וחמש בלילה. "
+                  "התבודדות ביער נבוריה, ליד ציון התנא רבי אלעזר המודעי. "
+                  "סדר הלימוד בציון רבי ישמעאל כהן גדול, בסאג׳ור. "
+                  "חזרה לתפילת שחרית בבית המדרש. "
+                  "ההרשמה פתוחה עד יום ראשון בשתים עשרה בצהריים. "
+                  "להרשמה לנסיעה הקש 1",
+            "en": "This is the registration for the trip to the graves of the tzadikim, with Hashem's help on Sunday night, "
+                  "the night before erev Rosh Chodesh Kislev. "
+                  "We leave at twelve forty five at night. "
+                  "Hisbodedus in the Nevoria forest, near the tziyun of the Tanna Rabbi Elazar HaModai. "
+                  "Learning at the tziyun of Rabbi Yishmael Kohen Gadol in Sajur. "
+                  "Back for Shacharis in the beis medrash. "
+                  "Registration is open until Sunday at twelve noon. "
+                  "To register, press 1",
+        },
+        "options": {
+            "1": {"he": "נרשם לנסיעה", "en": "registered", "admin": "Registered"},
+        },
+        "saved": {"he": "נרשמת בהצלחה לנסיעה. נסיעה טובה",
+                  "en": "You are registered for the trip"},
+        "already": {"he": "אתה כבר רשום לנסיעה",
+                    "en": "You are already registered for the trip"},
+    },
+    {
         "id": "teveria_5787",
         "key": "7",
         "audience": "night",          # only Kollel Chatzos avrechim hear it ("day" / "all")
