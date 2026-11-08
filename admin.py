@@ -63,7 +63,7 @@ def remember_address():
 # A second login that sees only Kollel Horaah (set on the Kollel Horaah page by the main admin).
 HORAAH_PAGES = {"admin.day_payroll", "admin.send_day_report", "admin.employees", "admin.edit_employee",
                 "admin.employee_month", "admin.add_attendance", "admin.edit_attendance", "admin.corrections",
-                "admin.delete_attendance_many",
+                "admin.delete_attendance_many", "admin.undo_delete",
                 "admin.horaah_guide"}
 
 
@@ -293,7 +293,10 @@ def employee_month(eid):
 <span class="muted"> מסמנים את הלילות שנסע למירון{{ ' / נהג בהסעה' if e.is_driver else '' }} ולוחצים שמירה.</span>{% endif %}
 {% if recs %}<div style="margin-top:8px"><button formaction="{{ url_for('admin.delete_attendance_many', eid=e.id, hy=hy, hm=hm) }}" style="background:#b00020"
 onclick="var n=document.querySelectorAll('input[name=del]:checked').length; if(!n){alert('לא סומן אף לילה');return false;} return confirm('למחוק ' + n + ' לילות מסומנים?')">מחיקת המסומנים</button>
-<span class="muted"> מסמנים בעמודה הראשונה את הלילות למחיקה (הסימון למעלה בוחר הכל).</span></div>{% endif %}</form>
+<span class="muted"> מסמנים בעמודה הראשונה את הלילות למחיקה (הסימון למעלה בוחר הכל).</span></div>{% endif %}
+{% if trash %}<div style="margin-top:8px"><button formaction="{{ url_for('admin.undo_delete', eid=e.id, hy=hy, hm=hm) }}" formnovalidate
+onclick="return confirm('להחזיר את {{ trash_n }} הלילות שנמחקו במחיקה האחרונה?')">ביטול המחיקה האחרונה</button>
+<span class="muted"> {{ trash_n }} לילות, נמחקו ב־<span class="num">{{ fmt(trash.deleted_at) }}</span></span></div>{% endif %}</form>
 {% if full %}<div class="box"><b>החודש:</b> {{ sm.nights }} לילות · {{ sm.whole }} שלמים · {{ sm.early }} מוקדמים ·
 נוכחות {{ (sm.percent * 100)|round(1) }}% · מלגה {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(מתחת למינימום ← 0)</span>{% endif %}
 · מירון {{ sm.meron_nights }} ({{ sm.meron }}) · נהג {{ sm.drives }} ({{ sm.driver }}) · <b>סה"כ {{ sm.total }}</b></div>{% endif %}
@@ -333,9 +336,10 @@ onsubmit="return confirm('להחזיר את החודש של {{ e.name }} למצ�
         pay[rs[0]["id"]] = n
     sm = schedule.month_summary(e, hy, hm)
     drove = set(schedule.driver_nights(eid, nfirst, nlast))
+    _trash = __import__("corrections").last_deletion(eid)
     return page(body, e=e, recs=recs, bons=bons, gifts=gifts, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
                 session_of=lambda a: schedule.session_date(db.parse(a["clock_in"])),
-                title=hebcal.heb_month_title(hm, hy), fmt=fmt, heb=hebcal.heb_date, gem=hebcal.gematria, undo=__import__("corrections").last_fill(eid, hy, hm), nfirst=nfirst, nlast=nlast,
+                title=hebcal.heb_month_title(hm, hy), fmt=fmt, heb=hebcal.heb_date, gem=hebcal.gematria, undo=__import__("corrections").last_fill(eid, hy, hm), trash=_trash, trash_n=len(__import__("json").loads(_trash["rows_json"])) if _trash else 0, nfirst=nfirst, nlast=nlast,
                 py=hebcal.prev_month(hy, hm), ny=hebcal.next_month(hy, hm))
 
 
@@ -399,13 +403,23 @@ def fill_month(eid):
 @bp.route("/employee/<int:eid>/delete-many", methods=["POST"])
 def delete_attendance_many(eid):
     hy, hm = month_args()
+    import corrections
     ids = [int(x) for x in request.form.getlist("del")]
     with db.connect() as c:
         horaah_only_emp(c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone())
-        for aid in ids:
-            a = c.execute("SELECT * FROM attendance WHERE id=? AND employee_id=?", (aid, eid)).fetchone()
-            if a and (is_full() or a["program"] == "day"):
-                c.execute("DELETE FROM attendance WHERE id=?", (aid,))
+        rows = [a for a in (c.execute("SELECT * FROM attendance WHERE id=? AND employee_id=?", (aid, eid)).fetchone() for aid in ids)
+                if a and (is_full() or a["program"] == "day")]
+        corrections.delete_nights(c, eid, rows)
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+@bp.route("/employee/<int:eid>/undo-delete", methods=["POST"])
+def undo_delete(eid):
+    import corrections
+    hy, hm = month_args()
+    with db.connect() as c:
+        horaah_only_emp(c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone())
+    corrections.undo_deletion(eid)
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 
@@ -446,7 +460,8 @@ def edit_attendance(aid):
                 abort(403)
         if request.method == "POST":
             if request.form.get("delete"):
-                c.execute("DELETE FROM attendance WHERE id=?", (aid,))
+                import corrections
+                corrections.delete_nights(c, a["employee_id"], [a])
             else:
                 t_in, t_out = parse_local(request.form["clock_in"]), parse_local(request.form.get("clock_out"))
                 y, m, d = heb_fields(t_in)

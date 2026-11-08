@@ -149,6 +149,13 @@ CREATE TABLE IF NOT EXISTS moreshet_cycles (
     created_at TEXT NOT NULL,
     done_at TEXT
 );
+CREATE TABLE IF NOT EXISTS attendance_trash (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL,
+    deleted_at TEXT NOT NULL,
+    rows_json TEXT NOT NULL,
+    restored_at TEXT
+);
 CREATE TABLE IF NOT EXISTS fill_undo (
     id INTEGER PRIMARY KEY,
     employee_id INTEGER NOT NULL,

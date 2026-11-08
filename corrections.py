@@ -96,6 +96,42 @@ def full_month(emp_id, hy, hm, until=None, meron=False):
     return n
 
 
+def delete_nights(c, emp_id, rows):
+    """Delete these attendance records, keeping a copy so the deletion can be undone."""
+    import json
+    rows = [dict(r) for r in rows]
+    if not rows:
+        return 0
+    c.execute("INSERT INTO attendance_trash(employee_id, deleted_at, rows_json) VALUES (?,?,?)",
+              (emp_id, db.now().isoformat(), json.dumps(rows, ensure_ascii=False)))
+    c.executemany("DELETE FROM attendance WHERE id=?", [(r["id"],) for r in rows])
+    return len(rows)
+
+
+def last_deletion(emp_id):
+    with db.connect() as c:
+        return c.execute("SELECT * FROM attendance_trash WHERE employee_id=? AND restored_at IS NULL ORDER BY id DESC LIMIT 1",
+                         (emp_id,)).fetchone()
+
+
+def undo_deletion(emp_id):
+    """Put back the nights of his last deletion. Returns how many."""
+    import json
+    t = last_deletion(emp_id)
+    if t is None:
+        return 0
+    n = 0
+    with db.connect() as c:
+        for r in json.loads(t["rows_json"]):
+            if c.execute("SELECT 1 FROM attendance WHERE id=?", (r["id"],)).fetchone():
+                continue
+            cols = list(r)
+            c.execute(f"INSERT INTO attendance({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", [r[k] for k in cols])
+            n += 1
+        c.execute("UPDATE attendance_trash SET restored_at=? WHERE id=?", (db.now().isoformat(), t["id"]))
+    return n
+
+
 def last_fill(emp_id, hy, hm):
     with db.connect() as c:
         return c.execute("SELECT * FROM fill_undo WHERE employee_id=? AND heb_year=? AND heb_month=? AND undone_at IS NULL "

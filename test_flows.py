@@ -1820,6 +1820,11 @@ def test_full_month_and_manual_registration():
     ids = [str(x["id"]) for x in attendance("300")]
     client.post(f"/admin/employee/{eid}/delete-many?hy=5787&hm=8", headers=AUTH, data={"del": ids})
     assert attendance("300") == [] and len(attendance("301")) == 2
+    page_ = client.get(f"/admin/employee/{eid}?hy=5787&hm=8", headers=AUTH).get_data(as_text=True)
+    assert "ביטול המחיקה האחרונה" in page_
+    client.post(f"/admin/employee/{eid}/undo-delete?hy=5787&hm=8", headers=AUTH)
+    assert len(attendance("300")) == 2
+    assert "ביטול המחיקה האחרונה" not in client.get(f"/admin/employee/{eid}?hy=5787&hm=8", headers=AUTH).get_data(as_text=True)
     # manual registration for the trip
     client.post("/admin/registrations", headers=AUTH, data={"add": "1", "trip": "kivrei_tzadikim_kislev_5787", "employee_id": [str(eid)]})
     assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]
