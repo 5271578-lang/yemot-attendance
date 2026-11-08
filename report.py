@@ -278,8 +278,6 @@ def run_once():
     run_moreshet_once()
     import expenses
     expenses.run_once()
-    import corrections
-    corrections.purge_old()
     if not enabled():
         return None
     when = due(db.now())
