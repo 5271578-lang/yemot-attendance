@@ -1792,6 +1792,26 @@ def test_bonus_payer_split():
     assert "כולל חצות ירושלים: 160.00" in client.get("/admin/bonuses?hy=5787&hm=9", headers=AUTH).get_data(as_text=True)
 
 
+
+def test_full_month_and_manual_registration():
+    import corrections, trips, schedule
+    seed()
+    at(2026, 11, 8, 9, 0)
+    # two kollel nights held this month (someone came), Worker A1 had only one, late
+    from datetime import datetime as _D
+    with db.connect() as c:
+        for d, who in ((4, "301"), (5, "301"), (5, "300")):
+            c.execute("INSERT INTO attendance(employee_id, clock_in, clock_out, heb_year, heb_month, heb_day, program) VALUES (?,?,?,5787,8,1,'night')",
+                      (emp(who)["id"], _D(2026, 11, d, 4, 0, tzinfo=db.TZ).isoformat(), _D(2026, 11, d, 6, 0, tzinfo=db.TZ).isoformat()))
+    eid = emp("300")["id"]
+    client.post(f"/admin/employee/{eid}/fill-month?hy=5787&hm=8", headers=AUTH)
+    got = sorted((x["clock_in"][:16], x["clock_out"][:16]) for x in attendance("300"))
+    assert got == [("2026-11-04T02:30", "2026-11-04T07:30"), ("2026-11-05T02:30", "2026-11-05T07:30")]
+    # manual registration for the trip
+    client.post("/admin/registrations", headers=AUTH, data={"add": "1", "trip": "kivrei_tzadikim_kislev_5787", "employee_id": [str(eid)]})
+    assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

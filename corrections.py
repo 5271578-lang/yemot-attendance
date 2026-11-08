@@ -70,6 +70,18 @@ def whole_night(emp_id, d):
     return manager_change(emp_id, "out", b)
 
 
+def full_month(emp_id, hy, hm, until=None):
+    """A whole night on every night the kollel was held in Kollel Chatzos month (hy, hm), up to `until`
+    (default: today). Returns how many nights were set."""
+    first, last = schedule.night_month_range(hy, hm)
+    last = min(last, until or db.now().date())
+    n = 0
+    for d in schedule.kollel_nights(first, last):
+        if whole_night(emp_id, d)[0]:
+            n += 1
+    return n
+
+
 def set_meron(emp_id, d, on=True):
     """Mark the night of morning `d` as a Meron night. False if he has no clock-in that night."""
     rows = schedule.nights_for(emp_id, d, d).get(d, [])

@@ -1487,7 +1487,7 @@ def voice_action(r, answer):
     kind = a.get("action")
     ids = {e["id"]: e for e in scope}
     who = ids.get(_int(a.get("employee_id")))
-    if kind in ("gift", "tefila_add", "status", "message_one") and who is None:
+    if kind in ("gift", "tefila_add", "status", "message_one", "full_month") and who is None:
         r.say(r.t("voice_not_allowed") if a.get("employee_id") else r.t("voice_error"))
         return _voice_retry(r, "action")
     if kind == "gift":
@@ -1520,6 +1520,9 @@ def voice_action(r, answer):
                    kind=r.t("fix_kind_in" if k["kind"] == "in" else "fix_kind_out"), when=say_when(r, db.parse(k["requested_time"])))
         return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
                      act={"action": "correction", "cid": cid, "approve": approve})
+    if kind == "full_month" and who is not None:
+        return r.ask("voice_ok", r.t("voice_confirm", what=r.t("voice_full_month", name=who["name"])), allowed=["1", "2"],
+                     act={"action": "full_month", "eid": who["id"]})
     if kind in ("attendance", "meron", "many"):
         items = a.get("items") if kind == "many" else [a]
         acts = [x for x in (_attendance_item(x, ids) for x in items or []) if x]
@@ -1629,6 +1632,12 @@ def voice_ok(r, answer, act):
         return main_menu(r)
     if act["action"] == "correction":
         return review_choice(r, "1" if act["approve"] else "2", [act["cid"]], 0)
+    if act["action"] == "full_month":
+        if act["eid"] in {e["id"] for e in manager_scope(me)}:
+            hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
+            corrections.full_month(act["eid"], hy, hm)
+            r.say(r.t("voice_done"))
+        return main_menu(r)
     if act["action"] == "attendance":
         scope = {e["id"] for e in manager_scope(me)}
         failed = [x for x in act["items"] if x["eid"] not in scope or not do_attendance(x)]

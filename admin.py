@@ -297,6 +297,9 @@ def employee_month(eid):
 {% if uman and full %}<div class="box"><b>אומן</b><table>{% for u in uman %}<tr><td>{{ u.heb_year }}</td>
 <td>{{ 'נסע' if u.went else 'לא נסע' }}</td><td>{% if u.went %}{{ (u.percent * 100)|round(1) }}% · לילות: {{ u.nights or 'לא נמצאו' }}{% endif %}</td>
 </tr>{% endfor %}</table></div>{% endif %}
+{% if full and e.in_night %}<div class="box"><form method="post" action="{{ url_for('admin.fill_month', eid=e.id, hy=hy, hm=hm) }}"
+onsubmit="return confirm('לרשום ל{{ e.name }} לילה שלם בכל לילה שהכולל התקיים בחודש הזה (עד היום)? כניסות שכבר קיימות יוקדמו לתחילת הכולל, והיציאה תהיה בסוף.')">
+<button>נוכחות מלאה לכל החודש</button> <span class="muted">לילה שלם בכל לילה שהכולל התקיים בחודש הזה, עד היום.</span></form></div>{% endif %}
 <div class="box"><b>הוספת משמרת ידנית</b><form method="post" action="{{ url_for('admin.add_attendance', eid=e.id) }}">
 כניסה <input type="datetime-local" name="clock_in" required> יציאה <input type="datetime-local" name="clock_out">
 הערה <input name="note"> <button>הוספה</button>{% if not full %} <span class="muted">(רק בשעות כולל הוראה, 14:00–20:00)</span>{% endif %}</form></div>
@@ -373,6 +376,14 @@ def page_month(dt):
 
 def heb_fields(dt):
     return hebcal.from_gregorian(schedule.session_date(dt))
+
+
+@bp.route("/employee/<int:eid>/fill-month", methods=["POST"])
+def fill_month(eid):
+    import corrections
+    hy, hm = month_args()
+    corrections.full_month(eid, hy, hm)
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 
 @bp.route("/employee/<int:eid>/attendance", methods=["POST"])
@@ -1083,10 +1094,19 @@ def tefila_page():
 @bp.route("/registrations", methods=["GET", "POST"])
 def registrations():
     if request.method == "POST":
+        if request.form.get("add"):
+            t = trips.by_id(request.form["trip"])
+            choice = request.form.get("choice") or (next(iter(t["options"])) if t else None)
+            if t and choice in t["options"]:
+                for eid in request.form.getlist("employee_id"):
+                    trips.register(t["id"], int(eid), choice)
+            return redirect(url_for("admin.registrations"))
         with db.connect() as c:
             c.execute("DELETE FROM trip_signups WHERE trip=? AND employee_id=?",
                       (request.form["trip"], int(request.form["employee_id"])))
         return redirect(url_for("admin.registrations"))
+    with db.connect() as c:
+        avrechim = c.execute("SELECT id, name, emp_number FROM employees WHERE active=1 ORDER BY name").fetchall()
     now = db.now()
     data = []
     for t in reversed(trips.TRIPS):
@@ -1103,8 +1123,12 @@ def registrations():
 <td>{{ t.options[x.choice].he }}</td><td class="num">{{ fmt(x.created_at) }}</td>
 <td><form method="post" onsubmit="return confirm('להסיר את ההרשמה?')"><input type="hidden" name="trip" value="{{ t.id }}">
 <input type="hidden" name="employee_id" value="{{ x.employee_id }}"><button>הסרה</button></form></td></tr>{% endfor %}
-</table></div></div>{% else %}<p class="muted">אין הרשמות.</p>{% endfor %}"""
-    return page(body, data=data, fmt=fmt)
+</table></div>
+<form method="post" style="margin-top:8px"><input type="hidden" name="add" value="1"><input type="hidden" name="trip" value="{{ t.id }}">
+הוספה ידנית: <select name="employee_id" multiple size="4" style="min-width:240px">{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
+{% if t.options|length > 1 %}<select name="choice">{% for k, o in t.options.items() %}<option value="{{ k }}">{{ o.he }}</option>{% endfor %}</select>{% endif %}
+<button>רישום</button> <span class="muted">Ctrl + לחיצה כדי לבחור כמה.</span></form></div>{% else %}<p class="muted">אין הרשמות.</p>{% endfor %}"""
+    return page(body, data=data, fmt=fmt, avrechim=avrechim)
 
 
 @bp.route("/registrations/<trip>.csv")
