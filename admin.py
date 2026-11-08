@@ -63,6 +63,7 @@ def remember_address():
 # A second login that sees only Kollel Horaah (set on the Kollel Horaah page by the main admin).
 HORAAH_PAGES = {"admin.day_payroll", "admin.send_day_report", "admin.employees", "admin.edit_employee",
                 "admin.employee_month", "admin.add_attendance", "admin.edit_attendance", "admin.corrections",
+                "admin.delete_attendance_many",
                 "admin.horaah_guide"}
 
 
@@ -275,9 +276,9 @@ def employee_month(eid):
 <a href="?hy={{py[0]}}&hm={{py[1]}}">▶ חודש קודם</a> · <a href="?hy={{ny[0]}}&hm={{ny[1]}}">חודש הבא ◀</a>
 {% if full %}<span class="muted"> · חודש הלילה {{ heb(nfirst) }} – {{ heb(nlast) }}{% if e.in_day %}; כולל הוראה: לפי החודש העברי{% endif %}</span>{% endif %}</p>
 <form method="post" action="{{ url_for('admin.set_meron', eid=e.id, hy=hy, hm=hm) }}">
-<div class="wrap"><table><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th class="right">דקות</th>
+<div class="wrap"><table><tr><th title="לבחירה ומחיקה"><input type="checkbox" onclick="document.querySelectorAll('input[name=del]').forEach(x=>x.checked=this.checked)"></th><th>תאריך</th><th>כניסה</th><th>יציאה</th><th class="right">דקות</th>
 <th class="right">בסיס</th><th class="right">בזמן</th><th class="right">לילה ₪</th><th>מירון</th>{% if e.is_driver %}<th>נהג</th>{% endif %}<th>הערה</th><th></th></tr>
-{% for a in recs %}{% set n = pay.get(a.id) %}<tr><td>{{ gem(a.heb_day) }} {{ title }}{% if n and n.bhz %} · <span class="muted">בין הזמנים</span>{% endif %}</td>
+{% for a in recs %}{% set n = pay.get(a.id) %}<tr><td><input type="checkbox" name="del" value="{{ a.id }}"></td><td>{{ gem(a.heb_day) }} {{ title }}{% if n and n.bhz %} · <span class="muted">בין הזמנים</span>{% endif %}</td>
 <td class="num">{{ fmt(a.clock_in) }}{% if a.program == 'day' %} <span class="muted">· כולל הוראה</span>{% endif %}{% if a.meron %} <span class="muted">· מירון</span>{% endif %}
 {% if a.actual_in and a.actual_in != a.clock_in %}<br><span class="muted">התקשר {{ fmt(a.actual_in) }}</span>{% endif %}</td>
 <td>{% if a.clock_out %}<span class="num">{{ fmt(a.clock_out) }}</span>{% if a.early_exit %} <span class="muted">מוקדם</span>{% endif %}{% else %}<span class="muted">7:30 (ברירת מחדל)</span>{% endif %}
@@ -289,7 +290,10 @@ def employee_month(eid):
 <td>{{ a.note or '' }}</td>
 <td><a href="{{ url_for('admin.edit_attendance', aid=a.id) }}">עריכה</a></td></tr>{% endfor %}</table></div>
 {% if pay %}<button style="margin-top:8px">שמירת מירון{{ ' / נהיגה' if e.is_driver else '' }}</button>
-<span class="muted"> מסמנים את הלילות שנסע למירון{{ ' / נהג בהסעה' if e.is_driver else '' }} ולוחצים שמירה.</span>{% endif %}</form>
+<span class="muted"> מסמנים את הלילות שנסע למירון{{ ' / נהג בהסעה' if e.is_driver else '' }} ולוחצים שמירה.</span>{% endif %}
+{% if recs %}<div style="margin-top:8px"><button formaction="{{ url_for('admin.delete_attendance_many', eid=e.id, hy=hy, hm=hm) }}" style="background:#b00020"
+onclick="var n=document.querySelectorAll('input[name=del]:checked').length; if(!n){alert('לא סומן אף לילה');return false;} return confirm('למחוק ' + n + ' לילות מסומנים?')">מחיקת המסומנים</button>
+<span class="muted"> מסמנים בעמודה הראשונה את הלילות למחיקה (הסימון למעלה בוחר הכל).</span></div>{% endif %}</form>
 {% if full %}<div class="box"><b>החודש:</b> {{ sm.nights }} לילות · {{ sm.whole }} שלמים · {{ sm.early }} מוקדמים ·
 נוכחות {{ (sm.percent * 100)|round(1) }}% · מלגה {{ '%.2f'|format(sm.stipend) }}{% if not sm.eligible %} <span class="warn">(מתחת למינימום ← 0)</span>{% endif %}
 · מירון {{ sm.meron_nights }} ({{ sm.meron }}) · נהג {{ sm.drives }} ({{ sm.driver }}) · <b>סה"כ {{ sm.total }}</b></div>{% endif %}
@@ -389,6 +393,19 @@ def fill_month(eid):
     import corrections
     hy, hm = month_args()
     corrections.full_month(eid, hy, hm, meron=bool(request.form.get("meron")))
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+@bp.route("/employee/<int:eid>/delete-many", methods=["POST"])
+def delete_attendance_many(eid):
+    hy, hm = month_args()
+    ids = [int(x) for x in request.form.getlist("del")]
+    with db.connect() as c:
+        horaah_only_emp(c.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone())
+        for aid in ids:
+            a = c.execute("SELECT * FROM attendance WHERE id=? AND employee_id=?", (aid, eid)).fetchone()
+            if a and (is_full() or a["program"] == "day"):
+                c.execute("DELETE FROM attendance WHERE id=?", (aid,))
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 

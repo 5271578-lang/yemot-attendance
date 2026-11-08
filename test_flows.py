@@ -1816,6 +1816,10 @@ def test_full_month_and_manual_registration():
     assert not any(x["meron"] for x in attendance("300"))
     client.post(f"/admin/employee/{eid}/undo-fill?hy=5787&hm=8", headers=AUTH)          # back to the start
     assert [(x["clock_in"][:16], x["clock_out"][:16]) for x in attendance("300")] == [("2026-11-05T04:00", "2026-11-05T06:00")]
+    client.post(f"/admin/employee/{eid}/fill-month?hy=5787&hm=8", headers=AUTH)
+    ids = [str(x["id"]) for x in attendance("300")]
+    client.post(f"/admin/employee/{eid}/delete-many?hy=5787&hm=8", headers=AUTH, data={"del": ids})
+    assert attendance("300") == [] and len(attendance("301")) == 2
     # manual registration for the trip
     client.post("/admin/registrations", headers=AUTH, data={"add": "1", "trip": "kivrei_tzadikim_kislev_5787", "employee_id": [str(eid)]})
     assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]
