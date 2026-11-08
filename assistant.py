@@ -32,7 +32,7 @@ ACTIONS = """Actions (answer with exactly one JSON object, nothing else):
 {"action": "attendance", "employee_id": <id>, "date": "YYYY-MM-DD", "in": "HH:MM" or null, "out": "HH:MM" or null, "whole": true|false}
     set a night's clock-in and/or exit (whole = a whole night). "date" is the date of the MORNING of that night
     (a night is from midnight on; "the night of the 15th" / "15th" = morning of the 15th). Several nights: a JSON list of these.
-{"action": "full_month", "employee_id": <id>}     a whole night on every night of this Kollel Chatzos month so far
+{"action": "full_month", "employee_id": <id>, "meron": true|false}     a whole night on every night of this Kollel Chatzos month so far (meron: also mark every night as Meron)
 {"action": "meron", "employee_id": <id>, "date": "YYYY-MM-DD"}                  mark that night as a Meron night
 {"action": "request", "text": "<the request in Hebrew>"}                       anything else: a change to the system itself
 {"action": "unclear", "question": "<short Hebrew question to ask back>"}       not clear which avrech / what to do

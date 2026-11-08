@@ -81,6 +81,7 @@ HE = {
     "voice_part_failed": "בוצע, חוץ מ{n} שלא הצלחתי. אפשר לתקן באתר",
     "voice_meron": "לסמן ל{name} לילה של מירון ב{day}",
     "voice_full_month": "לרשום ל{name} לילה שלם בכל לילה שהכולל התקיים החודש, עד היום",
+    "voice_with_meron": ", עם מירון בכל הלילות",
     "voice_whole": "לרשום ל{name} לילה שלם ב{day}",
     "voice_times": "לרשום ל{name} ב{day}, {what}",
     "voice_in": "כניסה בשעה {time}",

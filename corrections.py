@@ -70,7 +70,7 @@ def whole_night(emp_id, d):
     return manager_change(emp_id, "out", b)
 
 
-def full_month(emp_id, hy, hm, until=None):
+def full_month(emp_id, hy, hm, until=None, meron=False):
     """A whole night on every night the kollel was held in Kollel Chatzos month (hy, hm), up to `until`
     (default: today). Returns how many nights were set."""
     first, last = schedule.night_month_range(hy, hm)
@@ -79,6 +79,8 @@ def full_month(emp_id, hy, hm, until=None):
     for d in schedule.kollel_nights(first, last):
         if whole_night(emp_id, d)[0]:
             n += 1
+            if meron:
+                set_meron(emp_id, d)
     return n
 
 

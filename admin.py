@@ -299,7 +299,9 @@ def employee_month(eid):
 </tr>{% endfor %}</table></div>{% endif %}
 {% if full and e.in_night %}<div class="box"><form method="post" action="{{ url_for('admin.fill_month', eid=e.id, hy=hy, hm=hm) }}"
 onsubmit="return confirm('לרשום ל{{ e.name }} לילה שלם בכל לילה שהכולל התקיים בחודש הזה (עד היום)? כניסות שכבר קיימות יוקדמו לתחילת הכולל, והיציאה תהיה בסוף.')">
-<button>נוכחות מלאה לכל החודש</button> <span class="muted">לילה שלם בכל לילה שהכולל התקיים בחודש הזה, עד היום.</span></form></div>{% endif %}
+<button>נוכחות מלאה לכל החודש</button>
+<button name="meron" value="1" onclick="return confirm('כולל סימון מירון בכל הלילות?')">נוכחות מלאה לכל החודש + מירון</button>
+<span class="muted">לילה שלם בכל לילה שהכולל התקיים בחודש הזה, עד היום.</span></form></div>{% endif %}
 <div class="box"><b>הוספת משמרת ידנית</b><form method="post" action="{{ url_for('admin.add_attendance', eid=e.id) }}">
 כניסה <input type="datetime-local" name="clock_in" required> יציאה <input type="datetime-local" name="clock_out">
 הערה <input name="note"> <button>הוספה</button>{% if not full %} <span class="muted">(רק בשעות כולל הוראה, 14:00–20:00)</span>{% endif %}</form></div>
@@ -382,7 +384,7 @@ def heb_fields(dt):
 def fill_month(eid):
     import corrections
     hy, hm = month_args()
-    corrections.full_month(eid, hy, hm)
+    corrections.full_month(eid, hy, hm, meron=bool(request.form.get("meron")))
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 

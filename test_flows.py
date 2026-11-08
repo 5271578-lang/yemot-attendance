@@ -1807,6 +1807,9 @@ def test_full_month_and_manual_registration():
     client.post(f"/admin/employee/{eid}/fill-month?hy=5787&hm=8", headers=AUTH)
     got = sorted((x["clock_in"][:16], x["clock_out"][:16]) for x in attendance("300"))
     assert got == [("2026-11-04T02:30", "2026-11-04T07:30"), ("2026-11-05T02:30", "2026-11-05T07:30")]
+    assert not any(x["meron"] for x in attendance("300"))
+    client.post(f"/admin/employee/{eid}/fill-month?hy=5787&hm=8", headers=AUTH, data={"meron": "1"})
+    assert all(x["meron"] for x in attendance("300")) and len(attendance("300")) == 2
     # manual registration for the trip
     client.post("/admin/registrations", headers=AUTH, data={"add": "1", "trip": "kivrei_tzadikim_kislev_5787", "employee_id": [str(eid)]})
     assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]

@@ -1521,8 +1521,10 @@ def voice_action(r, answer):
         return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
                      act={"action": "correction", "cid": cid, "approve": approve})
     if kind == "full_month" and who is not None:
-        return r.ask("voice_ok", r.t("voice_confirm", what=r.t("voice_full_month", name=who["name"])), allowed=["1", "2"],
-                     act={"action": "full_month", "eid": who["id"]})
+        meron = bool(a.get("meron"))
+        what = r.t("voice_full_month", name=who["name"]) + (r.t("voice_with_meron") if meron else "")
+        return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
+                     act={"action": "full_month", "eid": who["id"], "meron": meron})
     if kind in ("attendance", "meron", "many"):
         items = a.get("items") if kind == "many" else [a]
         acts = [x for x in (_attendance_item(x, ids) for x in items or []) if x]
@@ -1635,7 +1637,7 @@ def voice_ok(r, answer, act):
     if act["action"] == "full_month":
         if act["eid"] in {e["id"] for e in manager_scope(me)}:
             hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
-            corrections.full_month(act["eid"], hy, hm)
+            corrections.full_month(act["eid"], hy, hm, meron=act.get("meron", False))
             r.say(r.t("voice_done"))
         return main_menu(r)
     if act["action"] == "attendance":
