@@ -190,7 +190,8 @@ def payroll():
     ny, nm = hebcal.next_month(hy, hm)
     body = """
 <h1>כולל חצות · {{ title }}</h1>
-<p class="muted"><span class="num">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }}</span> ·
+<p class="muted"><span class="num">{{ first.strftime('%d/%m/%Y') }} – {{ last.strftime('%d/%m/%Y') }}</span> · {{ days_in }} ימים בחודש ·
+<b style="color:#222">הכולל התקיים {{ held|length }} לילות</b>{% if held %} (עד <span class="num">{{ held[-1].strftime('%d/%m') }}</span>){% endif %} ·
 <a href="?hy={{py}}&hm={{pm}}">▶ חודש קודם</a> · <a href="?hy={{ny}}&hm={{nm}}">חודש הבא ◀</a> ·
 <br>חודשים עם נתונים: {% for y, m, name in data_months(program) %}<a href="?hy={{y}}&hm={{m}}" {% if y == hy and m == hm %}style="font-weight:700;text-decoration:none"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %} ·
 <a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">הורדה לאקסל (CSV)</a> ·
@@ -222,7 +223,7 @@ def payroll():
 מירון: 35 ללילה. נהג: 60 ללילה. תוספות = לילות אומן ותוספות למלגה שהוכנסו ידנית (חלק מהמלגה).
 בונוס = בונוס נפרד, לא חלק מהמלגה: משולם תמיד, ולא נספר למינימום ולאחוזים.</p>"""
     title = hebcal.heb_month_title(hm, hy)
-    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, last=last,
+    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, held=schedule.kollel_nights(first, last), days_in=(last - first).days + 1, last=last,
                 title=title, roles=ROLE_NAMES, msg=request.args.get("msg"),
                 t=report.totals([(r["emp"], r) for r in rows]))
 
