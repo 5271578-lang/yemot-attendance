@@ -1830,6 +1830,25 @@ def test_full_month_and_manual_registration():
     assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]
 
 
+
+def test_undo_copies_kept_until_a_week_after_the_summary():
+    import corrections
+    from datetime import datetime as _D
+    seed()
+    at(2026, 11, 8, 9, 0)
+    eid = emp("300")["id"]
+    with db.connect() as c:
+        c.execute("INSERT INTO attendance(employee_id, clock_in, heb_year, heb_month, heb_day, program) VALUES (?,?,5787,8,1,'night')",
+                  (eid, _D(2026, 11, 5, 3, 0, tzinfo=db.TZ).isoformat()))
+    corrections.full_month(eid, 5787, 8)
+    with db.connect() as c:
+        corrections.delete_nights(c, eid, c.execute("SELECT * FROM attendance WHERE employee_id=?", (eid,)).fetchall())
+    # Cheshvan ends 9/11 (summary on the 29th): kept until 16/11
+    assert corrections.purge_old(_D(2026, 11, 16, 12, 0, tzinfo=db.TZ)) == 0
+    assert corrections.purge_old(_D(2026, 11, 17, 12, 0, tzinfo=db.TZ)) == 2
+    assert corrections.last_fill(eid, 5787, 8) is None and corrections.last_deletion(eid) is None
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

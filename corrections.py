@@ -132,6 +132,42 @@ def undo_deletion(emp_id):
     return n
 
 
+KEEP_DAYS_AFTER_REPORT = 7
+
+
+def _keep_until(rows, made):
+    """A week after the summary of the latest month these records belong to (Kollel Chatzos: the 29th;
+    Kollel Horaah: Rosh Chodesh after the Hebrew month), and at least a week after the change itself."""
+    until = made.date()
+    for r in rows:
+        d = schedule.session_date(db.parse(r["clock_in"]))
+        if r.get("program") == "day":
+            y, m, _ = hebcal.from_gregorian(d)
+            end = hebcal.month_range(y, m)[1] + timedelta(days=1)
+        else:
+            end = schedule.night_month_range(*schedule.night_month_of(d))[1]
+        until = max(until, end)
+    return until + timedelta(days=KEEP_DAYS_AFTER_REPORT)
+
+
+def purge_old(now=None):
+    """Forget the saved copies (for undo) once they are past keeping; the records themselves stay as they are."""
+    import json
+    now = now or db.now()
+    gone = 0
+    with db.connect() as c:
+        for t in c.execute("SELECT * FROM attendance_trash").fetchall():
+            if now.date() > _keep_until(json.loads(t["rows_json"]), db.parse(t["deleted_at"])):
+                c.execute("DELETE FROM attendance_trash WHERE id=?", (t["id"],))
+                gone += 1
+        for f in c.execute("SELECT * FROM fill_undo").fetchall():
+            last = schedule.night_month_range(f["heb_year"], f["heb_month"])[1]
+            if now.date() > max(last, db.parse(f["created_at"]).date()) + timedelta(days=KEEP_DAYS_AFTER_REPORT):
+                c.execute("DELETE FROM fill_undo WHERE id=?", (f["id"],))
+                gone += 1
+    return gone
+
+
 def last_fill(emp_id, hy, hm):
     with db.connect() as c:
         return c.execute("SELECT * FROM fill_undo WHERE employee_id=? AND heb_year=? AND heb_month=? AND undone_at IS NULL "
