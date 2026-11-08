@@ -302,7 +302,10 @@ def employee_month(eid):
 onsubmit="return confirm('לרשום ל{{ e.name }} לילה שלם בכל לילה שהכולל התקיים בחודש הזה (עד היום)? כניסות שכבר קיימות יוקדמו לתחילת הכולל, והיציאה תהיה בסוף.')">
 <button>נוכחות מלאה לכל החודש</button>
 <button name="meron" value="1" onclick="return confirm('כולל סימון מירון בכל הלילות?')">נוכחות מלאה לכל החודש + מירון</button>
-<span class="muted">לילה שלם בכל לילה שהכולל התקיים בחודש הזה, עד היום.</span></form></div>{% endif %}
+<span class="muted">לילה שלם בכל לילה שהכולל התקיים בחודש הזה, עד היום.</span></form>
+{% if undo %}<form method="post" action="{{ url_for('admin.undo_fill', eid=e.id, hy=hy, hm=hm) }}" style="margin-top:8px"
+onsubmit="return confirm('להחזיר את החודש של {{ e.name }} למצב שהיה לפני המילוי? (שינויים שנעשו אחרי המילוי בחודש הזה יימחקו גם הם)')">
+<button style="background:#b00020">ביטול המילוי האחרון</button> <span class="muted">מולא ב־<span class="num">{{ fmt(undo.created_at) }}</span></span></form>{% endif %}</div>{% endif %}
 <div class="box"><b>הוספת משמרת ידנית</b><form method="post" action="{{ url_for('admin.add_attendance', eid=e.id) }}">
 כניסה <input type="datetime-local" name="clock_in" required> יציאה <input type="datetime-local" name="clock_out">
 הערה <input name="note"> <button>הוספה</button>{% if not full %} <span class="muted">(רק בשעות כולל הוראה, 14:00–20:00)</span>{% endif %}</form></div>
@@ -328,7 +331,7 @@ onsubmit="return confirm('לרשום ל{{ e.name }} לילה שלם בכל לי�
     drove = set(schedule.driver_nights(eid, nfirst, nlast))
     return page(body, e=e, recs=recs, bons=bons, gifts=gifts, uman=uman, pay=pay, sm=sm, dsm=dsm, hy=hy, hm=hm, drove=drove,
                 session_of=lambda a: schedule.session_date(db.parse(a["clock_in"])),
-                title=hebcal.heb_month_title(hm, hy), fmt=fmt, heb=hebcal.heb_date, gem=hebcal.gematria, nfirst=nfirst, nlast=nlast,
+                title=hebcal.heb_month_title(hm, hy), fmt=fmt, heb=hebcal.heb_date, gem=hebcal.gematria, undo=__import__("corrections").last_fill(eid, hy, hm), nfirst=nfirst, nlast=nlast,
                 py=hebcal.prev_month(hy, hm), ny=hebcal.next_month(hy, hm))
 
 
@@ -386,6 +389,14 @@ def fill_month(eid):
     import corrections
     hy, hm = month_args()
     corrections.full_month(eid, hy, hm, meron=bool(request.form.get("meron")))
+    return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
+
+
+@bp.route("/employee/<int:eid>/undo-fill", methods=["POST"])
+def undo_fill(eid):
+    import corrections
+    hy, hm = month_args()
+    corrections.undo_fill(eid, hy, hm)
     return redirect(url_for("admin.employee_month", eid=eid, hy=hy, hm=hm))
 
 

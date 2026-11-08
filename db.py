@@ -149,6 +149,15 @@ CREATE TABLE IF NOT EXISTS moreshet_cycles (
     created_at TEXT NOT NULL,
     done_at TEXT
 );
+CREATE TABLE IF NOT EXISTS fill_undo (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL,
+    heb_year INTEGER NOT NULL,
+    heb_month INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    rows_json TEXT NOT NULL,
+    undone_at TEXT
+);
 CREATE TABLE IF NOT EXISTS change_requests (
     id INTEGER PRIMARY KEY,
     employee_id INTEGER NOT NULL REFERENCES employees(id),

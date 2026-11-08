@@ -70,10 +70,22 @@ def whole_night(emp_id, d):
     return manager_change(emp_id, "out", b)
 
 
+def _month_rows(c, emp_id, first, last):
+    """His Kollel Chatzos records whose night is in [first, last]."""
+    rows = c.execute("SELECT * FROM attendance WHERE employee_id=? AND program='night' AND clock_in>=? AND clock_in<?",
+                     (emp_id, (first - timedelta(days=1)).isoformat(), (last + timedelta(days=2)).isoformat())).fetchall()
+    return [r for r in rows if first <= schedule.session_date(db.parse(r["clock_in"])) <= last]
+
+
 def full_month(emp_id, hy, hm, until=None, meron=False):
     """A whole night on every night the kollel was held in Kollel Chatzos month (hy, hm), up to `until`
-    (default: today). Returns how many nights were set."""
+    (default: today). Returns how many nights were set. What was there before is kept, so it can be undone."""
+    import json
     first, last = schedule.night_month_range(hy, hm)
+    with db.connect() as c:
+        before = [dict(r) for r in _month_rows(c, emp_id, first, last)]
+        c.execute("INSERT INTO fill_undo(employee_id, heb_year, heb_month, created_at, rows_json) VALUES (?,?,?,?,?)",
+                  (emp_id, hy, hm, db.now().isoformat(), json.dumps(before, ensure_ascii=False)))
     last = min(last, until or db.now().date())
     n = 0
     for d in schedule.kollel_nights(first, last):
@@ -82,6 +94,30 @@ def full_month(emp_id, hy, hm, until=None, meron=False):
             if meron:
                 set_meron(emp_id, d)
     return n
+
+
+def last_fill(emp_id, hy, hm):
+    with db.connect() as c:
+        return c.execute("SELECT * FROM fill_undo WHERE employee_id=? AND heb_year=? AND heb_month=? AND undone_at IS NULL "
+                         "ORDER BY id DESC LIMIT 1", (emp_id, hy, hm)).fetchone()
+
+
+def undo_fill(emp_id, hy, hm):
+    """Back to how the month was before the last full-month fill. True if done."""
+    import json
+    f = last_fill(emp_id, hy, hm)
+    if f is None:
+        return False
+    first, last = schedule.night_month_range(hy, hm)
+    rows = json.loads(f["rows_json"])
+    with db.connect() as c:
+        for r in _month_rows(c, emp_id, first, last):
+            c.execute("DELETE FROM attendance WHERE id=?", (r["id"],))
+        for r in rows:
+            cols = list(r)
+            c.execute(f"INSERT INTO attendance({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", [r[k] for k in cols])
+        c.execute("UPDATE fill_undo SET undone_at=? WHERE id=?", (db.now().isoformat(), f["id"]))
+    return True
 
 
 def set_meron(emp_id, d, on=True):
