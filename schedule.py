@@ -32,6 +32,17 @@ DRIVER_BONUS = 60                    # per night the driver confirmed the shuttl
 
 # Monthly rules
 PERCENT_BONUSES = [(70, 200), (80, 100)]   # attendance >= 70% -> +200, >= 80% -> another +100
+# From Kislev 5787 the kollel does not commit to the percent bonuses and the zrizin-makdimim (+10 for coming
+# before the start). Each month is paid without them unless the admin chooses "with" for that month.
+BONUSES_UNTIL = (5787, 8)
+
+
+def bonuses_on(hy, hm):
+    """Percent bonuses and the early (+10) bonus counted this month? Setting bonuses_<y>_<m> = with / without."""
+    v = db.get_setting(f"bonuses_{hy}_{hm}")
+    if v in ("with", "without"):
+        return v == "with"
+    return (hy, hm if hm >= 7 else hm + 13) <= (BONUSES_UNTIL[0], BONUSES_UNTIL[1] if BONUSES_UNTIL[1] >= 7 else BONUSES_UNTIL[1] + 13)
 MIN_WHOLE_NIGHTS = 2                 # below this OR below MIN_STIPEND (without Meron): no stipend this month
 MIN_STIPEND = 500
 REMOVE_AFTER_MONTHS = 2              # avrech with this many counted months in a row without stipend is removed
@@ -453,8 +464,11 @@ def driver_nights(emp_id, first, last):
     return sorted({d for d in (session_date(db.parse(r["created_at"])) for r in rows) if first <= d <= last})
 
 
-def month_summary(emp, hy, hm, until=None):
-    """Everything about one employee's stipend in one night month (27th to 26th; up to `until`)."""
+def month_summary(emp, hy, hm, until=None, bonuses=None):
+    """Everything about one employee's stipend in one night month (up to `until`).
+    bonuses: count the percent bonuses and the early +10 (None = as set for the month, bonuses_on)."""
+    if bonuses is None:
+        bonuses = bonuses_on(hy, hm)
     first, last = night_month_range(hy, hm)
     if until:
         last = min(last, until)
@@ -471,10 +485,11 @@ def month_summary(emp, hy, hm, until=None):
             "SELECT payer, COALESCE(SUM(amount),0) s FROM gifts WHERE employee_id=? AND heb_year=? AND heb_month=? GROUP BY payer",
             (emp["id"], hy, hm))}
         gifts = sum(by_payer.values())
-    nightly = round(sum(n["total"] for n in nights), 2)
+    early_off = 0 if bonuses else ON_TIME_BONUS * sum(1 for n in nights if n["early"])
+    nightly = round(sum(n["total"] for n in nights) - early_off, 2)
     base = round(sum(n["base"] for n in nights), 2)
-    timing = sum(n["bonus"] for n in nights)
-    percent_bonus = sum(amount for at, amount in PERCENT_BONUSES if pct * 100 >= at)
+    timing = sum(n["bonus"] for n in nights) - early_off
+    percent_bonus = sum(amount for at, amount in PERCENT_BONUSES if pct * 100 >= at) if bonuses else 0
     whole = sum(1 for n in nights if n["whole"])
     stipend = round(nightly + percent_bonus + extras, 2)          # without Meron
     eligible = whole >= MIN_WHOLE_NIGHTS and stipend >= MIN_STIPEND
@@ -487,7 +502,7 @@ def month_summary(emp, hy, hm, until=None):
     return {
         "nights": len(nights), "whole": whole, "early": sum(1 for n in nights if n["early"]),
         "percent": pct, "present_min": present, "possible_min": possible, "held": len(held),
-        "base": base, "timing": timing, "percent_bonus": percent_bonus, "extras": round(extras, 2),
+        "base": base, "timing": timing, "percent_bonus": percent_bonus, "extras": round(extras, 2), "bonuses": bonuses,
         "stipend": stipend, "eligible": eligible, "meron_nights": meron_nights, "meron": meron,
         "drives": drives, "driver": driver, "rate_ok": rate_ok, "meron_nightly": meron_nightly,
         "gifts": round(gifts, 2),      # separate bonus: not part of the stipend, the minimum or the percents

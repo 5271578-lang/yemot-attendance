@@ -1305,13 +1305,16 @@ def status_of(r, emp, name=False):
         r.say(r.t("status_night_title"))
     hy, hm = schedule.night_month_of(today)
     month = hebcal.month_name(hm, hy, "en" if r.lang == "en" else "he")
-    s = schedule.month_summary(emp, hy, hm, until=today)
+    with_bonuses = schedule.bonuses_on(hy, hm)
+    s = schedule.month_summary(emp, hy, hm, until=today, bonuses=with_bonuses)
     f = schedule.month_forecast(emp, hy, hm, db.now())
     pct = round(f["month_percent"] * 100)                    # out of the whole month, to the 29th
     r.say(r.t("status_month", month=month, nights=s["nights"], whole=s["whole"], early=s["early"], pct=pct))
     r.say(r.t("status_stipend", amount=round(s["stipend"])))
+    if not with_bonuses:
+        r.say(r.t("status_no_bonuses"))
     missing = []
-    for at, _amount in schedule.PERCENT_BONUSES:
+    for at, _amount in (schedule.PERCENT_BONUSES if with_bonuses else []):
         if f[at] is None:
             missing.append(r.t("status_percent_lost", pct=at))
         elif f[at] > 0:

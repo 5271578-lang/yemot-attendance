@@ -102,6 +102,7 @@ def build(hy, hm, until=None):
 
     html = f"""<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;color:#222">
 <h2 style="color:#1f3a5f;margin:0 0 8px">סיכום חודש {month}{upto}</h2>
+<p style="margin:0 0 10px;font-weight:bold;color:{'#1f3a5f' if schedule.bonuses_on(hy, hm) else '#b00020'}">{'החישוב כולל בונוס אחוזי נוכחות ותוספת זריזין מקדימים' if schedule.bonuses_on(hy, hm) else 'החישוב ללא בונוס אחוזי נוכחות וללא תוספת זריזין מקדימים'}</p>
 {summary}
 <h3 style="color:#1f3a5f;margin:12px 0 6px">נוכחות לפי אברך</h3>
 <table style="border-collapse:collapse" dir="rtl">

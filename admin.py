@@ -198,6 +198,11 @@ def payroll():
 <a href="{{ url_for('admin.export', hy=hy, hm=hm) }}">הורדה לאקסל (CSV)</a> ·
 <form method="post" action="{{ url_for('admin.send_report', hy=hy, hm=hm) }}" style="display:inline">
 <button>לשלוח את הסיכום במייל עכשיו</button></form>{% if msg %} <span class="warn">{{ msg }}</span>{% endif %}</p>
+<div class="box" style="{{ '' if bon else 'border-color:#b00020' }}"><b>החישוב החודש: {{ 'עם בונוס אחוזים וזריזין מקדימים' if bon else 'בלי בונוס אחוזים ובלי זריזין מקדימים' }}</b>
+<form method="post" action="{{ url_for('admin.bonuses_mode', hy=hy, hm=hm) }}" style="display:inline">
+<button name="mode" value="{{ 'without' if bon else 'with' }}" onclick="return confirm('לשנות את החישוב של החודש הזה? (כך יישלח גם הסיכום במייל)')">{{ 'לחשב בלי' if bon else 'לחשב עם' }}</button></form>
+<div class="muted">סה"כ החודש עם הבונוסים: {{ '{:,.0f}'.format(cmp_with) }} · בלי: {{ '{:,.0f}'.format(cmp_without) }} · הפרש {{ '{:,.0f}'.format(cmp_with - cmp_without) }}.
+מכסלו תשפ"ז ברירת המחדל היא בלי. האברכים שומעים במצב האישי את החישוב שנבחר כאן.</div></div>
 <div class="wrap"><table><tr><th>מס'</th><th>שם</th><th class="right">לילות</th><th class="right">שלמים</th>
 <th class="right">נוכחות</th><th class="right">לפי לילה</th><th class="right">70/80%</th><th class="right">תוספות</th>
 <th class="right">מלגה</th><th class="right">מירון</th><th class="right">נהג</th><th class="right">בונוס</th><th class="right">סה"כ ₪</th></tr>
@@ -224,7 +229,14 @@ def payroll():
 מירון: 35 ללילה. נהג: 60 ללילה. תוספות = לילות אומן ותוספות למלגה שהוכנסו ידנית (חלק מהמלגה).
 בונוס = בונוס נפרד, לא חלק מהמלגה: משולם תמיד, ולא נספר למינימום ולאחוזים.</p>"""
     title = hebcal.heb_month_title(hm, hy)
-    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, held=schedule.kollel_nights(first, last), days_in=(last - first).days + 1, last=last,
+    def month_total(b):
+        tot = 0
+        for r in rows:
+            m = schedule.month_summary(r["emp"], hy, hm, bonuses=b)
+            tot += m["total"] or 0
+        return tot
+    bon = schedule.bonuses_on(hy, hm)
+    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, bon=bon, cmp_with=month_total(True), cmp_without=month_total(False), held=schedule.kollel_nights(first, last), days_in=(last - first).days + 1, last=last,
                 title=title, roles=ROLE_NAMES, msg=request.args.get("msg"),
                 t=report.totals([(r["emp"], r) for r in rows]))
 
@@ -390,6 +402,15 @@ def page_month(dt):
 
 def heb_fields(dt):
     return hebcal.from_gregorian(schedule.session_date(dt))
+
+
+@bp.route("/bonuses-mode", methods=["POST"])
+def bonuses_mode():
+    hy, hm = month_args()
+    mode = request.form.get("mode")
+    if mode in ("with", "without"):
+        db.set_setting(f"bonuses_{hy}_{hm}", mode)
+    return redirect(url_for("admin.payroll", hy=hy, hm=hm))
 
 
 @bp.route("/employee/<int:eid>/fill-month", methods=["POST"])

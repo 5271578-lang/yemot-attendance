@@ -1038,7 +1038,14 @@ def test_admin_pages_and_payroll():
     from admin import payroll_rows
     y, m, _ = hebcal.from_gregorian(datetime(2026, 11, 17).date())
     rows = {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}
-    assert rows["300"]["nights"] == 2 and rows["300"]["stipend"] == 110 + 76 + 300    # 97.5% -> +200 +100
+    # Kislev 5787: without the percent bonuses and the early +10 (unless chosen)
+    assert rows["300"]["nights"] == 2 and rows["300"]["stipend"] == 100 + 76
+    assert schedule.month_summary(emp("300"), y, m, bonuses=True)["stipend"] == 110 + 76 + 300    # 97.5% -> +200 +100
+    client.post(f"/admin/bonuses-mode?hy={y}&hm={m}", headers=AUTH, data={"mode": "with"})
+    assert {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}["300"]["stipend"] == 110 + 76 + 300
+    assert "עם בונוס אחוזים וזריזין" in client.get(f"/admin/?hy={y}&hm={m}", headers=AUTH).get_data(as_text=True)
+    client.post(f"/admin/bonuses-mode?hy={y}&hm={m}", headers=AUTH, data={"mode": "without"})
+    rows = {r["emp"]["emp_number"]: r for r in payroll_rows(y, m)}
     assert not rows["300"]["eligible"] and rows["300"]["total"] == 0          # 1 whole night, below 500
     assert client.get("/admin/").status_code == 401
     for p in ("/admin/", "/admin/employees", "/admin/messages", "/admin/corrections", "/admin/shuttles",
