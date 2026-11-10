@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%' OR key LIKE 'money_%'")
+        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%' OR key LIKE 'money_%' OR key LIKE 'bonuses_%'")
         for t in ("moreshet_ledger", "moreshet_cycles", "change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
