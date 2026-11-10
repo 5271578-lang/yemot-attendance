@@ -82,6 +82,8 @@ HE = {
     "voice_meron": "לסמן ל{name} לילה של מירון ב{day}",
     "voice_full_month": "לרשום ל{name} לילה שלם בכל לילה שהכולל התקיים החודש, עד היום",
     "voice_with_meron": ", עם מירון בכל הלילות",
+    "voice_undo_fill": "לבטל את מילוי החודש המלא של {name}, ולהחזיר את החודש למה שהיה לפני",
+    "voice_no_fill": "לא נמצא מילוי חודש מלא של {name} שאפשר לבטל",
     "voice_whole": "לרשום ל{name} לילה שלם ב{day}",
     "voice_times": "לרשום ל{name} ב{day}, {what}",
     "voice_in": "כניסה בשעה {time}",
