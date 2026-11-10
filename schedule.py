@@ -37,6 +37,26 @@ PERCENT_BONUSES = [(70, 200), (80, 100)]   # attendance >= 70% -> +200, >= 80% -
 BONUSES_UNTIL = (5787, 8)
 
 
+def bonuses_chosen(hy, hm):
+    return db.get_setting(f"bonuses_{hy}_{hm}") in ("with", "without")
+
+
+def bonuses_ask_now(now=None):
+    """On the 28th and 29th of a Kollel Chatzos month, until with/without is chosen: (hy, hm), else None."""
+    now = now or db.now()
+    hy, hm = night_month_of(session_date(now))
+    last = night_month_range(hy, hm)[1]
+    if now.date() in (last - timedelta(days=1), last) and not bonuses_chosen(hy, hm) and after_bonus_era(hy, hm):
+        return hy, hm
+    return None
+
+
+def after_bonus_era(hy, hm):
+    """A month from Kislev 5787 on (the bonuses are no longer automatic)."""
+    k = lambda y, m: (y, m if m >= 7 else m + 13)
+    return k(hy, hm) > k(*BONUSES_UNTIL)
+
+
 def bonuses_on(hy, hm):
     """Percent bonuses and the early (+10) bonus counted this month? Setting bonuses_<y>_<m> = with / without."""
     v = db.get_setting(f"bonuses_{hy}_{hm}")

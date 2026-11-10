@@ -206,11 +206,17 @@ def send(hy, hm, until=None, builder=None, to=None):
     return True, "sent"
 
 
+BONUS_WAIT_HOUR = 20
+
+
 def due(now):
     """(hy, hm, today) if the monthly report should go out now, else None."""
     today = now.date()
     hy, hm, hd = hebcal.from_gregorian(today)
     last = schedule.night_month_range(hy, hm)[1]          # the 29th: the night month closes that morning
+    if (today == last and now.hour < BONUS_WAIT_HOUR and not schedule.bonuses_chosen(hy, hm)
+            and schedule.after_bonus_era(hy, hm)):
+        return None                       # waiting for the with / without choice (asked on the line), at most until 20:00
     if today > last or (today == last and now.hour >= REPORT_HOUR):
         return hy, hm, today
     return None

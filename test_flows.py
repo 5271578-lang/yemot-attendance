@@ -1837,6 +1837,36 @@ def test_full_month_and_manual_registration():
     assert [x["employee_id"] for x in trips.signups("kivrei_tzadikim_kislev_5787")] == [eid]
 
 
+
+def test_asked_on_the_28th_with_or_without_bonuses():
+    import money, report, schedule
+    seed()
+    with db.connect() as c:
+        c.execute("UPDATE employees SET name='ישראל טנגי' WHERE emp_number='200'")
+    # Kislev 5787 night month ends 29 Kislev = 9/12/2026; the 28th = 8/12
+    at(2026, 12, 7, 12, 0)
+    t = Call("0502222222").start()
+    assert "המלגות של חודש" not in t
+    at(2026, 12, 8, 12, 0)
+    m = Call("0502222222"); t = m.start()
+    assert "המלגות של חודש כסלו" in t
+    t = m.press("3")                                   # later
+    assert "המלגות של חודש" not in t
+    # the 29th: the e-mail waits for the choice
+    from datetime import datetime as _D
+    assert report.due(_D(2026, 12, 9, 9, 0, tzinfo=db.TZ)) is None
+    at(2026, 12, 9, 9, 0)
+    m = Call("0502222222"); t = m.start()
+    assert "המלגות של חודש כסלו" in t
+    assert "החודש יחושב בלי הבונוסים" in m.press("2")
+    assert schedule.bonuses_chosen(5787, 9) and not schedule.bonuses_on(5787, 9)
+    assert report.due(_D(2026, 12, 9, 9, 0, tzinfo=db.TZ))
+    assert "המלגות של חודש" not in Call("0502222222").start()
+    # not chosen at all: sent at 20:00
+    db.set_setting("bonuses_5787_9", "")
+    assert report.due(_D(2026, 12, 9, 20, 0, tzinfo=db.TZ))
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

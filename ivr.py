@@ -396,6 +396,12 @@ def main_menu(r):
         r.announce(r.t("moreshet_announce"))
     if moreshet.only_member(emp):
         return moreshet_menu(r)
+    ask = schedule.bonuses_ask_now()
+    if ask and money.is_treasurer(emp) and not r.s["data"].get("bonus_asked"):
+        r.s["data"]["bonus_asked"] = True
+        hy, hm = ask
+        return r.ask("bonus_mode_choice", r.t("bonus_mode_ask", month=hebcal.month_name(hm, hy, "he")),
+                     allowed=["1", "2", "3"], hy=hy, hm=hm)
     if money.route_now(emp) and not r.s["data"].get("money_routed"):
         r.s["data"]["money_routed"] = True                 # once a call: 0 then gives the usual menu
         return money_menu(r)
@@ -685,6 +691,14 @@ def money_menu(r):
     if cy["paid"]:
         r.say(r.t("money_paid_left", paid=say_money(r, cy["paid"]), left=say_money(r, cy["left"])))
     r.ask("money_choice", r.t("money_menu", left=say_money(r, cy["left"])), allowed=["1", "2", "3"], cycle=cy["cycle"])
+
+
+@step
+def bonus_mode_choice(r, answer, hy, hm):
+    if answer in ("1", "2") and money.is_treasurer(employee(r)):
+        db.set_setting(f"bonuses_{hy}_{hm}", "with" if answer == "1" else "without")
+        r.say(r.t("bonus_mode_saved_with" if answer == "1" else "bonus_mode_saved_without"))
+    main_menu(r)
 
 
 @step
