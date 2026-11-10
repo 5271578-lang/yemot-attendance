@@ -1521,8 +1521,8 @@ def voice_action(r, answer):
         return r.ask("voice_ok", r.t("voice_confirm", what=what), allowed=["1", "2"],
                      act={"action": "correction", "cid": cid, "approve": approve})
     if kind == "undo_fill" and who is not None:
-        hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
-        if corrections.last_fill(who["id"], hy, hm) is None:
+        f = corrections.last_fill_any(who["id"])
+        if f is None:
             r.say(r.t("voice_no_fill", name=who["name"]))
             return main_menu(r)
         return r.ask("voice_ok", r.t("voice_confirm", what=r.t("voice_undo_fill", name=who["name"])), allowed=["1", "2"],
@@ -1643,8 +1643,9 @@ def voice_ok(r, answer, act):
         return review_choice(r, "1" if act["approve"] else "2", [act["cid"]], 0)
     if act["action"] == "undo_fill":
         if act["eid"] in {e["id"] for e in manager_scope(me)}:
-            hy, hm = schedule.night_month_of(schedule.session_date(db.now()))
-            corrections.undo_fill(act["eid"], hy, hm)
+            f = corrections.last_fill_any(act["eid"])
+            if f is not None:
+                corrections.undo_fill(act["eid"], f["heb_year"], f["heb_month"])
             r.say(r.t("voice_done"))
         return main_menu(r)
     if act["action"] == "full_month":

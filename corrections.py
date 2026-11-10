@@ -132,6 +132,13 @@ def undo_deletion(emp_id):
     return n
 
 
+def last_fill_any(emp_id):
+    """His last full-month fill that was not undone, of any month."""
+    with db.connect() as c:
+        return c.execute("SELECT * FROM fill_undo WHERE employee_id=? AND undone_at IS NULL ORDER BY id DESC LIMIT 1",
+                         (emp_id,)).fetchone()
+
+
 def last_fill(emp_id, hy, hm):
     with db.connect() as c:
         return c.execute("SELECT * FROM fill_undo WHERE employee_id=? AND heb_year=? AND heb_month=? AND undone_at IS NULL "
