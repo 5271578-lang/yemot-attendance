@@ -523,7 +523,9 @@ def month_forecast(emp, hy, hm, now):
     remaining = [d for d in remaining if expected_kollel(d)]
     lengths = [present_minutes([], d)[1] for d in remaining]
     total_possible = so_far["possible_min"] + sum(lengths)
-    out = {"remaining": len(remaining)}
+    out = {"remaining": len(remaining),
+           # out of the whole month (to the 29th): what he has so far, as a part of everything the month will have
+           "month_percent": so_far["present_min"] / total_possible if total_possible else 0.0}
     for at, _amount in PERCENT_BONUSES:
         need = at / 100 * total_possible - so_far["present_min"]
         out[at] = _nights_for_minutes(need, lengths)

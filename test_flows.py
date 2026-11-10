@@ -1192,7 +1192,7 @@ def test_status_key_6():
     at(when.year, when.month, when.day, 9, 0)
     t = menu_call("0503333331").press("6")
     assert "היית נוכח 6 לילות, מתוכם 6 לילות שלמים, ו 6 לילות זריזין מקדימים" in t
-    assert "60 אחוז" in t and "660 שקלים" in t
+    assert "מתוך החודש כולו, עד סוף החודש, עומד עד עכשיו על 24 אחוז" in t and "660 שקלים" in t   # 6 of 25 nights
     # night month ends 29 Cheshvan: 10 nights so far, 15 more expected (no Shabbat): 70% of 25 = 17.5 -> 12 more
     assert "ב 70 אחוז, עליך להגיע לעוד 12 לילות שלמים לפחות, מתוך 15 הלילות שנשארו" in t
     assert "ב 80 אחוז, עליך להגיע לעוד 14 לילות שלמים לפחות, מתוך 15 הלילות שנשארו" in t
