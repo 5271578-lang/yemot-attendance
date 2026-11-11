@@ -182,6 +182,25 @@ def payroll_rows(hy, hm):
     return out
 
 
+def by_night(hy, hm):
+    """[(date, how many came, their nightly pay together, of which Meron nights)] for the night month."""
+    first, last = schedule.night_month_range(hy, hm)
+    bon = schedule.bonuses_on(hy, hm)
+    with db.connect() as c:
+        emps = c.execute("SELECT * FROM employees").fetchall()
+    days = {}
+    for e in emps:
+        for d, recs in schedule.nights_for(e["id"], first, last).items():
+            n = schedule.night_pay(e, recs, d)
+            if not n:
+                continue
+            x = days.setdefault(d, [0, 0.0, 0])
+            x[0] += 1
+            x[1] += n["total"] - (0 if bon or not n["early"] else schedule.ON_TIME_BONUS)
+            x[2] += 1 if n["meron"] else 0
+    return [(d, x[0], round(x[1], 2), x[2]) for d, x in sorted(days.items())]
+
+
 @bp.route("/")
 def payroll():
     hy, hm = month_args()
@@ -223,6 +242,10 @@ def payroll():
 הכל ביחד <b>{{ '{:,.0f}'.format(t.total) }}</b> · לכולל חצות ירושלים (סניף צפת) <b>{{ '{:,.0f}'.format(t.jerusalem) }}</b> ·
 אור הצדיק <b>{{ '{:,.0f}'.format(t.ohr_hatzadik) }}</b>
 <div class="muted">מירון (35 ללילה, 60 לנהג) ← ירושלים. בונוסי 70/80% ← אור הצדיק. בונוסים נפרדים ← לפי מה שסומן בכל בונוס. השאר: חצי חצי.</div></div>
+<details class="box"><summary><b>לפי לילה</b> – כמה הגיעו בכל לילה וכמה עלה (לפי לילה בלבד, בלי בונוס אחוזים, מירון ונהג)</summary>
+<table><tr><th>תאריך</th><th>יום</th><th class="right">הגיעו</th><th class="right">₪</th></tr>
+{% for d, n, amount, mer in nights_table %}<tr><td>{{ heb(d) }}</td><td class="num">{{ d.strftime('%d/%m') }}</td><td class="right">{{ n }}</td><td class="right">{{ '{:,.0f}'.format(amount) }}</td></tr>{% endfor %}
+<tr><td><b>סה"כ</b></td><td></td><td class="right"><b>{{ nights_table|sum(attribute=1) }}</b></td><td class="right"><b>{{ '{:,.0f}'.format(nights_table|sum(attribute=2)) }}</b></td></tr></table></details>
 <p class="muted">חודש המלגה של הלילה: מראש חודש (גם א' דראש חודש) עד כ"ט. לפי לילה: 80 × החלק מזמן הכולל שנכח (<span class="num">2:30–7:30</span>, בין הזמנים <span class="num">3:30–7:30</span>), +20 עד 10 דקות איחור,
 +30 לפני ההתחלה. לילה בלי יציאה נחשב עד 7:30. אחוז הנוכחות לפי זמן בלבד.
 70% ← +200, 80% ← עוד +100. פחות מ־2 לילות שלמים או פחות מ־500 (בלי מירון) ← אין מלגה (0 באדום).
@@ -236,7 +259,7 @@ def payroll():
             tot += m["total"] or 0
         return tot
     bon = schedule.bonuses_on(hy, hm)
-    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, bon=bon, cmp_with=month_total(True), cmp_without=month_total(False), held=schedule.kollel_nights(first, last), days_in=(last - first).days + 1, last=last,
+    return page(body, rows=rows, hy=hy, hm=hm, py=py, pm=pm, ny=ny, nm=nm, first=first, nights_table=by_night(hy, hm), heb=hebcal.heb_date, bon=bon, cmp_with=month_total(True), cmp_without=month_total(False), held=schedule.kollel_nights(first, last), days_in=(last - first).days + 1, last=last,
                 title=title, roles=ROLE_NAMES, msg=request.args.get("msg"),
                 t=report.totals([(r["emp"], r) for r in rows]))
 
