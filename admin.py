@@ -255,12 +255,12 @@ def export():
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["מס' אברך", "שם", "תפקיד", "לילות", "לילות שלמים", "% נוכחות", "לפי לילה", "בונוס 70/80%",
-                "תוספות", "מלגה", "זכאי", "לילות מירון", "מירון", "נסיעות", "נהג", "סה\"כ"])
+                "תוספות", "מלגה", "זכאי", "לילות מירון", "מירון", "נסיעות", "נהג", "בונוס נפרד", "סה\"כ"])
     for r in payroll_rows(hy, hm):
         w.writerow([r["emp"]["emp_number"], r["emp"]["name"], ROLE_NAMES[r["emp"]["role"]], r["nights"], r["whole"],
                     round(r["percent"] * 100, 1), round(r["base"] + r["timing"], 2), r["percent_bonus"], r["extras"],
                     r["stipend"], "כן" if r["eligible"] else "לא", r["meron_nights"], r["meron"], r["drives"],
-                    r["driver"], r["total"] if r["total"] is not None else ""])
+                    r["driver"], r["gifts"], r["total"] if r["total"] is not None else ""])
     name = f"payroll-{hebcal.month_name(hm, hy).replace(' ', '')}-{hy}.csv"
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={name}"})
