@@ -616,9 +616,18 @@ NIGHT_MONTH_LAST_DAY = 29
 NIGHT_MONTH_SPECIAL_START = {(5787, 8): (5787, 7, 27)}
 
 
+OLD_RULE_UNTIL = (5787, 7)        # up to Tishrei 5787 the stipend month was the 27th to the 26th
+
+
+def _mkey(y, m):
+    return y, (m if m >= 7 else m + 13)
+
+
 def night_month_range(hy, hm):
     """Gregorian (first, last) session dates of night month (hy, hm)."""
     py, pm = hebcal.prev_month(hy, hm)
+    if _mkey(hy, hm) <= _mkey(*OLD_RULE_UNTIL):
+        return hebcal.to_gregorian(py, pm, 27), hebcal.to_gregorian(hy, hm, 26)
     if (hy, hm) in NIGHT_MONTH_SPECIAL_START:
         first = hebcal.to_gregorian(*NIGHT_MONTH_SPECIAL_START[(hy, hm)])
     elif hebcal.month_length(pm, py) == 30:
@@ -635,12 +644,11 @@ def night_month_range(hy, hm):
 
 def night_month_of(d):
     """(hy, hm) of the night month that session date `d` belongs to."""
-    y, m, dd = hebcal.from_gregorian(d)
-    nxt = hebcal.next_month(y, m)
-    if dd > NIGHT_MONTH_LAST_DAY:
-        return nxt
-    if nxt in NIGHT_MONTH_SPECIAL_START and d >= hebcal.to_gregorian(*NIGHT_MONTH_SPECIAL_START[nxt]):
-        return nxt
+    y, m, _dd = hebcal.from_gregorian(d)
+    for cand in (hebcal.prev_month(y, m), (y, m), hebcal.next_month(y, m)):
+        first, last = night_month_range(*cand)
+        if first <= d <= last:
+            return cand
     return y, m
 
 

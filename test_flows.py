@@ -320,7 +320,7 @@ def test_uman_credit_question_and_amounts():
     seed()
     g = hebcal.to_gregorian
     tamuz = [g(5786, 4, d) for d in range(2, 12)]                   # 10 kollel nights
-    elul = [g(5786, 6, d) for d in range(19, 29)]                    # 10 kollel nights, the last ones of Elul
+    elul = [g(5786, 6, d) for d in range(17, 27)]                    # 10 kollel nights, the last ones of the Elul month (to the 26th)
     for d in tamuz + elul:
         night("302", datetime.combine(d, datetime.min.time(), tzinfo=db.TZ).replace(hour=2, minute=20))
     for d in tamuz[:6] + elul[:5]:                                   # 60% and 50%
