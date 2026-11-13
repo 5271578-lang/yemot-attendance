@@ -57,9 +57,9 @@ def run_once():
             e = by_num.get(num) if num else _find(people, " ".join(_words(name)[:-1]), [_words(name)[-1]])
             if e is None:
                 new = ivr.next_emp_number("0", [p["emp_number"] for p in c.execute("SELECT emp_number FROM employees")])
-                eid = c.execute("INSERT INTO employees(emp_number, name, pin, role, in_night, in_day, joined_on) "
-                                "VALUES (?,?,?,?,1,0,?)", (new, name, "1480", "employee", db.now().date().isoformat())).lastrowid
-                report.append(f"נוסף לכולל חצות: {name} (מספר {new}) - צריך להוסיף טלפון")
+                eid = c.execute("INSERT INTO employees(emp_number, name, pin, role, in_night, in_day, joined_on, active) "
+                                "VALUES (?,?,?,?,1,0,?,0)", (new, name, "1480", "employee", db.now().date().isoformat())).lastrowid
+                report.append(f"נוסף לכולל חצות, עדיין לא פעיל (אין לו כניסה לקו): {name} (מספר {new})")
             else:
                 eid = e["id"]
             c.execute("UPDATE employees SET address=COALESCE(?, address), children=COALESCE(?, children), "
@@ -79,3 +79,16 @@ def run_once():
     db.set_setting("family_update_report", "\n".join(report) or "כל הפרטים עודכנו")
     db.set_setting("family_update_1", "1")
     return report
+
+
+def run_once_2():
+    """Amnon Danberg: his phone, but not active yet (he has not officially joined): no access to the line."""
+    if db.get_setting("family_update_2"):
+        return None
+    with db.connect() as c:
+        hits = [p for p in c.execute("SELECT * FROM employees").fetchall()
+                if "דנברג" in _words(p["name"]) and "אמנון" in _words(p["name"])]
+        if len(hits) == 1:
+            c.execute("UPDATE employees SET phone=?, active=0 WHERE id=?", ("0527672119", hits[0]["id"]))
+    db.set_setting("family_update_2", "1")
+    return len(hits) == 1

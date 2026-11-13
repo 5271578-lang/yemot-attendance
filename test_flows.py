@@ -1868,6 +1868,11 @@ def test_asked_on_the_28th_with_or_without_bonuses():
 
 
 
+def all_emps():
+    with db.connect() as c:
+        return c.execute("SELECT * FROM employees").fetchall()
+
+
 def test_family_update_from_the_list():
     import family
     seed()
@@ -1881,6 +1886,10 @@ def test_family_update_from_the_list():
     assert emp("006")["in_day"] == 1 and any("אמנון דנברג" in x for x in rep) and any("יצחק הערבסט" in x for x in rep)
     assert emp("008")["in_day"] == 0 and any("יעקב קרמר" in x for x in rep)          # a different Kramer
     assert family.run_once() is None                                       # once
+    assert family.run_once_2() is True
+    d = [p for p in all_emps() if "דנברג" in p["name"]][0]
+    assert d["phone"] == "0527672119" and d["active"] == 0
+    assert "לעדכון כניסה" not in Call("0527672119").start()                # no access yet
     page_ = client.get("/admin/employees?k=night", headers=AUTH).get_data(as_text=True)
     assert "עדכון כתובות, ילדים" in page_ and "בנימין הצדיק (לוחמי הגטאות) 48" in page_
     eid = emp("013")["id"]

@@ -28,6 +28,7 @@ import money  # noqa: E402
 money.seed_once()
 import family  # noqa: E402
 family.run_once()
+family.run_once_2()
 with db.connect() as _c:            # old error texts held the whole request address (with the token): remove them
     _c.execute("UPDATE message_recipients SET delivery_status='call failed (address too long)' WHERE delivery_status LIKE '%token=%'")
     _c.execute("UPDATE messages SET call_result='FAILED (address too long)' WHERE call_result LIKE '%token=%'")
