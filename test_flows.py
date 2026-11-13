@@ -1890,6 +1890,9 @@ def test_family_update_from_the_list():
     d = [p for p in all_emps() if "דנברג" in p["name"]][0]
     assert d["phone"] == "0527672119" and d["active"] == 0
     assert "לעדכון כניסה" not in Call("0527672119").start()                # no access yet
+    assert family.run_once_3() is True
+    n = [p for p in all_emps() if "יארבלום" in p["name"]][0]
+    assert n["phone"] == "0548591759" and n["active"] == 1
     page_ = client.get("/admin/employees?k=night", headers=AUTH).get_data(as_text=True)
     assert "עדכון כתובות, ילדים" in page_ and "בנימין הצדיק (לוחמי הגטאות) 48" in page_
     eid = emp("013")["id"]

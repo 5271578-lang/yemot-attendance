@@ -92,3 +92,23 @@ def run_once_2():
             c.execute("UPDATE employees SET phone=?, active=0 WHERE id=?", ("0527672119", hits[0]["id"]))
     db.set_setting("family_update_2", "1")
     return len(hits) == 1
+
+
+def run_once_3():
+    """Natan Yarblum (Moreshet HaNachal): the right phone number."""
+    if db.get_setting("family_update_3"):
+        return None
+    phone = "0548591759"
+    with db.connect() as c:
+        hits = [p for p in c.execute("SELECT * FROM employees").fetchall()
+                if "נתן" in _words(p["name"]) and any(x in _words(p["name"]) for x in ("יארבלום", "ירבלום"))]
+        other = c.execute("SELECT name FROM employees WHERE (phone=? OR phone2=?)", (phone, phone)).fetchall()
+        ok = len(hits) == 1 and all(o["name"] == hits[0]["name"] for o in other)
+        if ok:
+            c.execute("UPDATE employees SET phone=?, active=1 WHERE id=?", (phone, hits[0]["id"]))
+    if not ok:
+        rep = db.get_setting("family_update_report") or ""
+        db.set_setting("family_update_report", (rep + "\n" if rep else "") +
+                       "לא הצלחתי לעדכן את הטלפון של נתן יארבלום (0548591759) - נא לעדכן בעריכה")
+    db.set_setting("family_update_3", "1")
+    return ok
