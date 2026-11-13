@@ -45,7 +45,7 @@ def seed():
     SENT.clear()
     at(2026, 11, 17, 2, 20)
     with db.connect() as c:
-        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%' OR key LIKE 'money_%' OR key LIKE 'bonuses_%'")
+        c.execute("DELETE FROM settings WHERE key LIKE 'line_exp%' OR key LIKE 'money_%' OR key LIKE 'bonuses_%' OR key LIKE 'family_%'")
         for t in ("moreshet_ledger", "moreshet_cycles", "change_requests", "moreshet_reports", "gifts", "tefila_draws", "tefila_entries", "trip_signups", "message_recipients", "messages", "attendance", "corrections", "shuttle_runs", "bonuses",
                   "uman", "call_sessions", "employees"):
             c.execute(f"DELETE FROM {t}")
@@ -1865,6 +1865,28 @@ def test_asked_on_the_28th_with_or_without_bonuses():
     # not chosen at all: sent at 20:00
     db.set_setting("bonuses_5787_9", "")
     assert report.due(_D(2026, 12, 9, 20, 0, tzinfo=db.TZ))
+
+
+
+def test_family_update_from_the_list():
+    import family
+    seed()
+    with db.connect() as c:
+        c.execute("INSERT INTO employees(emp_number,name,pin,role,in_night,in_day) VALUES ('013','הרב חיים בנימין אנשין','1480','employee',1,0)")
+        c.execute("INSERT INTO employees(emp_number,name,pin,role,in_night,in_day) VALUES ('006','רבי פייבל הקדוש מלמד','1480','employee',1,0)")
+        c.execute("INSERT INTO employees(emp_number,name,pin,role,in_night,in_day) VALUES ('008','הרב הצדיק רבי שמעון קרמר','1480','employee',1,0)")
+    rep = family.run_once()
+    a = emp("013")
+    assert a["address"] == "בנימין הצדיק (לוחמי הגטאות) 48" and a["children"] == 2 and a["children_unmarried"] == 2
+    assert emp("006")["in_day"] == 1 and any("אמנון דנברג" in x for x in rep) and any("יצחק הערבסט" in x for x in rep)
+    assert emp("008")["in_day"] == 0 and any("יעקב קרמר" in x for x in rep)          # a different Kramer
+    assert family.run_once() is None                                       # once
+    page_ = client.get("/admin/employees?k=night", headers=AUTH).get_data(as_text=True)
+    assert "עדכון כתובות, ילדים" in page_ and "בנימין הצדיק (לוחמי הגטאות) 48" in page_
+    eid = emp("013")["id"]
+    client.post(f"/admin/employees/{eid}", headers=AUTH, data={"emp_number": "013", "name": "הרב חיים בנימין אנשין", "role": "employee",
+                "in_night": "on", "active": "on", "address": "רחוב חדש 1", "children": "3", "children_unmarried": "2"})
+    assert emp("013")["address"] == "רחוב חדש 1" and emp("013")["children"] == 3
 
 
 if __name__ == "__main__":

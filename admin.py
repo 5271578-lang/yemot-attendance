@@ -427,6 +427,12 @@ def heb_fields(dt):
     return hebcal.from_gregorian(schedule.session_date(dt))
 
 
+@bp.route("/family-report-done", methods=["POST"])
+def family_report_done():
+    db.set_setting("family_update_report", "")
+    return redirect(url_for("admin.employees"))
+
+
 @bp.route("/bonuses-mode", methods=["POST"])
 def bonuses_mode():
     hy, hm = month_args()
@@ -693,6 +699,9 @@ EMP_FORM = """<form method="post">
 <input name="moreshet_name" placeholder="השם שנאמר במורשת (לדוגמה: נפתלי)" size="24" value="{{ (e.moreshet_name or '') if e else '' }}">{% endif %}
 <select name="language">{% for k, v in langs.items() %}<option value="{{k}}" {% if e and e.language==k %}selected{% endif %}>{{v}}</option>{% endfor %}</select>
 {% if full %}<input name="shuttle_calls" type="number" min="1" max="5" placeholder="שיחות הסעה (1-5)" title="כמה פעמים להתקשר ביציאת ההסעה - האברך קובע בטלפון" value="{{ e.shuttle_calls if e and e.shuttle_calls else '' }}">{% endif %}
+<br><input name="address" placeholder="כתובת" size="34" value="{{ (e.address or '') if e else '' }}">
+<input name="children" type="number" min="0" placeholder="ילדים" style="width:80px" value="{{ e.children if e and e.children is not none else '' }}">
+<input name="children_unmarried" type="number" min="0" placeholder="מתוכם לא נשואים" style="width:140px" value="{{ e.children_unmarried if e and e.children_unmarried is not none else '' }}">
 {% if e %}<label><input type="checkbox" name="active" {% if e.active %}checked{% endif %}> פעיל</label>{% endif %}
 <button>{{ 'שמירה' if e else 'הוספת אברך' }}</button></form>"""
 
@@ -712,6 +721,11 @@ def emp_values(form):
             form.get("moreshet_role") if form.get("moreshet_role") in moreshet.ROLES else None,
             form.get("moreshet_key", "").strip() or None,
             form.get("moreshet_name", "").strip() or None)
+
+
+def family_values(form):
+    num = lambda k: int(form[k]) if (form.get(k) or "").strip().isdigit() else None
+    return (form.get("address", "").strip() or None, num("children"), num("children_unmarried"))
 
 
 def limit_values(vals, old=None):
@@ -747,10 +761,11 @@ def employees():
             if phone_taken(request.form.get("phone")) or phone_taken(request.form.get("phone2")):
                 raise ValueError("מספר הטלפון הזה כבר שייך לאברך אחר")
             with db.connect() as c:
-                c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
+                new_id = c.execute("INSERT INTO employees(emp_number,name,phone,pin,role,shift,shuttle_group,hourly_rate,is_driver,"
                           "language,shuttle_calls,id_number,in_night,in_day,phone2,phone2_mode,moreshet_role,moreshet_key,moreshet_name,joined_on) "
                           "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                          limit_values(emp_values(request.form)) + (db.now().date().isoformat(),))
+                          limit_values(emp_values(request.form)) + (db.now().date().isoformat(),)).lastrowid
+                c.execute("UPDATE employees SET address=?, children=?, children_unmarried=? WHERE id=?", family_values(request.form) + (new_id,))
             return redirect(url_for("admin.employees", k="day" if request.form.get("in_day") and not request.form.get("in_night") else kollel))
         except Exception as ex:                       # duplicate number etc.
             error = str(ex)
@@ -766,19 +781,22 @@ def employees():
 {% if full and (orphans or kollel == 'none') %} · <a class="warn" href="{{ url_for('admin.employees', k='none') }}">לא בשום כולל ({{ orphans }})</a>{% endif %}
 <span class="muted"> · {{ emps|length }} כאן.{% if full %} אברך ששייך לשני הכוללים מופיע בשני הדפים.{% endif %}</span></p>
 {% if no_id %}<p class="warn">ל־{{ no_id }} אברכים פעילים כאן אין ת.ז.</p>{% endif %}
+{% if full and fam_report %}<div class="box"><b>עדכון כתובות, ילדים וכולל הוראה מהרשימה ששלחת:</b><br>{{ fam_report|replace('\n', '<br>')|safe }}
+<form method="post" action="{{ url_for('admin.family_report_done') }}" style="margin-top:6px"><button>ראיתי, להסתיר</button></form></div>{% endif %}
 {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 <div class="box"><b>הוספת אברך</b>""" + EMP_FORM + """</div>
-<div class="wrap"><table><tr><th>מס'</th><th>שם</th><th>ת.ז</th><th>טלפון</th><th>תפקיד</th><th>משמרת</th><th>הסעה</th><th>תעריף לשעה</th><th>שפה</th><th>מצב</th><th></th></tr>
+<div class="wrap"><table><tr><th>מס'</th><th>שם</th><th>ת.ז</th><th>טלפון</th><th>תפקיד</th><th>משמרת</th><th>הסעה</th><th>תעריף לשעה</th><th>שפה</th><th>כתובת</th><th>ילדים</th><th>מצב</th><th></th></tr>
 {% for x in emps %}<tr class="{{ '' if x.active else 'muted' }}"><td>{{ x.emp_number }}</td><td>{{ x.name }}</td><td>{% if x.id_number %}{{ x.id_number }}{% else %}<span class="warn">חסר</span>{% endif %}</td><td>{{ x.phone or '' }}{% if x.phone2 %}<br><span class="muted">{{ x.phone2 }}</span>{% endif %}</td>
 <td>{{ roles[x.role] }}{% if x.is_driver %} · נהג{% endif %}
 <span class="muted">{{ 'חצות' if x.in_night else '' }}{{ ' + ' if x.in_night and x.in_day else '' }}{{ 'הוראה' if x.in_day else '' }}</span></td><td>{{ x.shift or '' }}</td><td>{{ {1: 'מאור חיים', 2: 'דרום'}.get(x.shuttle_group, '') }}</td>
 <td>{% set r = rate(x) %}{% if r is none %}<span class="warn">לא נקבע</span>{% else %}{{ r }}{% endif %}</td>
 <td>{{ langs[x.language] }}{% if x.shuttle_group %} · {{ x.shuttle_calls or '?' }} שיחות{% endif %}</td>
+<td>{{ x.address or '' }}</td><td>{% if x.children is not none %}{{ x.children }}{% if x.children_unmarried is not none %} <span class="muted">({{ x.children_unmarried }} לא נשואים)</span>{% endif %}{% endif %}</td>
 <td>{% if removed(x) %}<span class="warn">הוסר (חודשיים)</span>
 <form method="post" action="{{ url_for('admin.restore', eid=x.id) }}" style="display:inline"><button>החזרה</button></form>{% endif %}</td>
 <td><a href="{{ url_for('admin.edit_employee', eid=x.id) }}">עריכה</a></td></tr>{% endfor %}</table></div>"""
     today = schedule.session_date(db.now())
-    return page(body, emps=emps, e=None, roles=ROLE_NAMES, rate=db.rate_for, error=error, langs=LANGS,
+    return page(body, emps=emps, fam_report=db.get_setting("family_update_report") or "", e=None, roles=ROLE_NAMES, rate=db.rate_for, error=error, langs=LANGS,
                 kollel=kollel, orphans=orphans, no_id=no_id, form_day=kollel == "day",
                 removed=lambda x: x["active"] and schedule.removed_by_rule(x, today))
 
@@ -805,6 +823,7 @@ def edit_employee(eid):
                           "hourly_rate=?, is_driver=?, language=?, shuttle_calls=?, id_number=?, in_night=?, in_day=?, phone2=?, phone2_mode=?, "
                           "moreshet_role=?, moreshet_key=?, moreshet_name=?, active=? WHERE id=?",
                           limit_values(emp_values(request.form), old) + (1 if request.form.get("active") else 0, eid))
+                c.execute("UPDATE employees SET address=?, children=?, children_unmarried=? WHERE id=?", family_values(request.form) + (eid,))
             return redirect(url_for("admin.employees", k="day" if not is_full() else "night" if request.form.get("in_night") else
                                     "day" if request.form.get("in_day") else "none"))
     with db.connect() as c:
