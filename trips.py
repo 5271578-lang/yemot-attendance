@@ -9,6 +9,34 @@ import db
 
 TRIPS = [
     {
+        "id": "nesia_kislev14_5787",
+        "key": "7",
+        "audience": "night",
+        "title": "נסיעה - הרשמה י\"ג–י\"ד כסלו תשפ\"ז",
+        "opens": datetime(2026, 11, 23, 8, 45, tzinfo=db.TZ),
+        "until": datetime(2026, 11, 24, 14, 30, tzinfo=db.TZ),          # Tuesday, 14:30
+        "menu": {"he": "להרשמה לנסיעה הקישו 7", "en": "To register for the trip, press 7"},
+        # TTS: no quotes or hyphens; numbers in words
+        "intro": {
+            "he": "הרשמה לנסיעה. "
+                  "לנסיעה ארוכה, יציאה מוקדמת ולימוד באזור, הקש 1. "
+                  "לנסיעה בינונית, יציאה מוקדמת ולימוד בבית המדרש, הקש 2. "
+                  "לנסיעה קצרה, יציאה רגילה וחזרה לתפילת שחרית, באפשרות זו אין זמן ללימוד בכל הלילה, הקש 3",
+            "en": "Trip registration. "
+                  "For the long trip, leaving early and learning in the area, press 1. "
+                  "For the medium trip, leaving early and learning in the beis medrash, press 2. "
+                  "For the short trip, leaving at the usual time and back for Shacharis, with no time for learning that night, press 3",
+        },
+        "options": {
+            "1": {"he": "נסיעה ארוכה", "en": "the long trip", "admin": "נסיעה ארוכה - יציאה מוקדמת ולימוד באזור"},
+            "2": {"he": "נסיעה בינונית", "en": "the medium trip", "admin": "נסיעה בינונית - יציאה מוקדמת ולימוד בביהמ\"ד"},
+            "3": {"he": "נסיעה קצרה", "en": "the short trip", "admin": "נסיעה קצרה - יציאה רגילה וחזרה לשחרית"},
+        },
+        "saved": {"he": "נרשמת בהצלחה, {option}", "en": "You are registered, {option}"},
+        "already": {"he": "אתה כבר רשום, {option}. אפשר לשנות בהקשה חדשה",
+                    "en": "You are already registered, {option}. You can change it by pressing again"},
+    },
+    {
         "id": "kivrei_tzadikim_kislev_5787",
         "key": "7",
         "audience": "night",
