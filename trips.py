@@ -12,17 +12,18 @@ TRIPS = [
         "id": "nesia_kislev14_5787",
         "key": "7",
         "audience": "night",
-        "title": "נסיעה - הרשמה י\"ג–י\"ד כסלו תשפ\"ז",
+        "title": "נסיעה להילולת רבינו הקדוש בציפורי, ט\"ו כסלו תשפ\"ז",
         "opens": datetime(2026, 11, 23, 8, 45, tzinfo=db.TZ),
         "until": datetime(2026, 11, 24, 14, 30, tzinfo=db.TZ),          # Tuesday, 14:30
-        "menu": {"he": "להרשמה לנסיעה הקישו 7", "en": "To register for the trip, press 7"},
+        "menu": {"he": "להרשמה לנסיעה להילולת רבינו הקדוש בציפורי הקישו 7",
+                 "en": "To register for the trip to the hilula of Rabbeinu HaKadosh in Tzippori, press 7"},
         # TTS: no quotes or hyphens; numbers in words
         "intro": {
-            "he": "הרשמה לנסיעה. "
+            "he": "הרשמה לנסיעה להילולת רבינו הקדוש בציפורי. "
                   "לנסיעה ארוכה, יציאה מוקדמת ולימוד באזור, הקש 1. "
                   "לנסיעה בינונית, יציאה מוקדמת ולימוד בבית המדרש, הקש 2. "
                   "לנסיעה קצרה, יציאה רגילה וחזרה לתפילת שחרית, באפשרות זו אין זמן ללימוד בכל הלילה, הקש 3",
-            "en": "Trip registration. "
+            "en": "Registration for the trip to the hilula of Rabbeinu HaKadosh in Tzippori. "
                   "For the long trip, leaving early and learning in the area, press 1. "
                   "For the medium trip, leaving early and learning in the beis medrash, press 2. "
                   "For the short trip, leaving at the usual time and back for Shacharis, with no time for learning that night, press 3",
