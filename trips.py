@@ -32,6 +32,9 @@ TRIPS = [
             "1": {"he": "נסיעה ארוכה", "en": "the long trip", "admin": "נסיעה ארוכה - יציאה מוקדמת ולימוד באזור"},
             "2": {"he": "נסיעה בינונית", "en": "the medium trip", "admin": "נסיעה בינונית - יציאה מוקדמת ולימוד בביהמ\"ד"},
             "3": {"he": "נסיעה בבוקר", "en": "the morning trip", "admin": "נסיעה בבוקר"},
+            # the old option 3 (until 24/11 10:36): kept for those who chose it, not offered on the phone
+            "4": {"he": "נסיעה קצרה", "en": "the short trip", "admin": "נסיעה קצרה - יציאה רגילה וחזרה לשחרית",
+                  "closed": True},
         },
         "saved": {"he": "נרשמת בהצלחה, {option}", "en": "You are registered, {option}"},
         "already": {"he": "אתה כבר רשום, {option}. אפשר לשנות בהקשה חדשה",
@@ -134,6 +137,20 @@ def by_id(trip_id):
 def signup_of(trip_id, emp_id):
     with db.connect() as c:
         return c.execute("SELECT * FROM trip_signups WHERE trip=? AND employee_id=?", (trip_id, emp_id)).fetchone()
+
+
+def phone_options(trip):
+    return [k for k, o in trip["options"].items() if not o.get("closed")]
+
+
+def move_old_short_once():
+    """24/11: option 3 became the morning trip; who chose 3 before that is moved to 4 (the old short trip)."""
+    if db.get_setting("trip_tz_move_3_4"):
+        return
+    with db.connect() as c:
+        c.execute("UPDATE trip_signups SET choice='4' WHERE trip='nesia_kislev14_5787' AND choice='3' AND created_at<?",
+                  ("2026-11-24T10:36:19",))
+    db.set_setting("trip_tz_move_3_4", "1")
 
 
 def register(trip_id, emp_id, choice):

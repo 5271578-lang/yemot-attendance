@@ -925,7 +925,7 @@ def trip_start(r, trip):
     mine = trips.signup_of(trip["id"], r.s["employee_id"])
     if mine:
         r.say(_lang(r, trip["already"]).format(option=_lang(r, trip["options"][mine["choice"]])))
-    r.ask("trip_choice", _lang(r, trip["intro"]), allowed=list(trip["options"]), timeout=10, trip=trip["id"])
+    r.ask("trip_choice", _lang(r, trip["intro"]), allowed=trips.phone_options(trip), timeout=10, trip=trip["id"])
 
 
 @step
@@ -934,7 +934,7 @@ def trip_choice(r, answer, trip):
     if t is None or db.now() >= t["until"] or not trips.for_employee(t, employee(r)):
         r.say(r.t("invalid"))
         return main_menu(r)
-    if answer not in t["options"]:
+    if answer not in trips.phone_options(t):
         return trip_start(r, t)
     trips.register(t["id"], r.s["employee_id"], answer)
     r.say(_lang(r, t["saved"]).format(option=_lang(r, t["options"][answer])))
