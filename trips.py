@@ -14,7 +14,7 @@ TRIPS = [
         "audience": "night",
         "title": "נסיעה להילולת רבינו הקדוש בציפורי, ט\"ו כסלו תשפ\"ז",
         "opens": datetime(2026, 11, 23, 8, 45, tzinfo=db.TZ),
-        "until": datetime(2026, 11, 24, 16, 30, tzinfo=db.TZ),          # Tuesday, 16:30
+        "until": datetime(2026, 11, 24, 18, 0, tzinfo=db.TZ),           # Tuesday, 18:00
         "menu": {"he": "להרשמה לנסיעה להילולת רבינו הקדוש בציפורי הקישו 7",
                  "en": "To register for the trip to the hilula of Rabbeinu HaKadosh in Tzippori, press 7"},
         # TTS: no quotes or hyphens; numbers in words
