@@ -1203,6 +1203,18 @@ def tefila_page():
 @bp.route("/registrations", methods=["GET", "POST"])
 def registrations():
     if request.method == "POST":
+        if request.form.get("tzintuk"):
+            import ivr
+            t = trips.by_id(request.form["trip"])
+            choices = set(request.form.getlist("choice"))
+            ids = {x["employee_id"] for x in trips.signups(t["id"]) if not choices or x["choice"] in choices} if t else set()
+            with db.connect() as c:
+                people = [e for e in c.execute("SELECT * FROM employees WHERE active=1").fetchall() if e["id"] in ids]
+            if not people:
+                return redirect(url_for("admin.registrations", msg="אין נרשמים באפשרויות שנבחרו"))
+            ok, _ = ivr.tzintuk_people(people)
+            return redirect(url_for("admin.registrations",
+                                    msg=f"הצינתוק נשלח ל-{len(people)} אברכים" if ok else "הצינתוק לא נשלח"))
         if request.form.get("add"):
             t = trips.by_id(request.form["trip"])
             choice = request.form.get("choice") or (next(iter(t["options"])) if t else None)
@@ -1223,6 +1235,7 @@ def registrations():
         counts = {k: sum(1 for x in rows if x["choice"] == k) for k in t["options"]}
         data.append((t, rows, counts, now < t["until"]))
     body = """<h1>הרשמות</h1>
+{% if msg %}<p class="box"><b>{{ msg }}</b></p>{% endif %}
 {% for t, rows, counts, is_open in data %}<div class="box"><b>{{ t.title }}</b><br>
 <span class="{{ '' if is_open else 'muted' }}">שלוחה {{ t.key }} · {{ 'פתוח עד' if is_open else 'נסגר ב' }} <span class="num">{{ t.until.strftime('%d/%m/%Y %H:%M') }}</span></span>
 <p><b>{{ rows|length }}</b> נרשמו{% for k, o in t.options.items() %} · {{ o.he }}: <b>{{ counts[k] }}</b>{% endfor %}
@@ -1236,8 +1249,11 @@ def registrations():
 <form method="post" style="margin-top:8px"><input type="hidden" name="add" value="1"><input type="hidden" name="trip" value="{{ t.id }}">
 הוספה ידנית: <select name="employee_id" multiple size="4" style="min-width:240px">{% for e in avrechim %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_number }})</option>{% endfor %}</select>
 {% if t.options|length > 1 %}<select name="choice">{% for k, o in t.options.items() %}<option value="{{ k }}">{{ o.he }}</option>{% endfor %}</select>{% endif %}
-<button>רישום</button> <span class="muted">Ctrl + לחיצה כדי לבחור כמה.</span></form></div>{% else %}<p class="muted">אין הרשמות.</p>{% endfor %}"""
-    return page(body, data=data, fmt=fmt, avrechim=avrechim)
+<button>רישום</button> <span class="muted">Ctrl + לחיצה כדי לבחור כמה.</span></form>
+{% if rows %}<form method="post" style="margin-top:8px" onsubmit="return confirm('לשלוח צינתוק?')"><input type="hidden" name="tzintuk" value="1"><input type="hidden" name="trip" value="{{ t.id }}">
+צינתוק לנרשמים:{% if t.options|length > 1 %}{% for k, o in t.options.items() %}{% if counts[k] %} <label><input type="checkbox" name="choice" value="{{ k }}"> {{ k }}. {{ o.he }} ({{ counts[k] }})</label>{% endif %}{% endfor %}{% endif %}
+<button>שליחת צינתוק</button> <span class="muted">בלי סימון - לכל הנרשמים.</span></form>{% endif %}</div>{% else %}<p class="muted">אין הרשמות.</p>{% endfor %}"""
+    return page(body, data=data, fmt=fmt, avrechim=avrechim, msg=request.args.get("msg"))
 
 
 @bp.route("/registrations/<trip>.csv")

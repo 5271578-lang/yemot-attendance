@@ -638,11 +638,26 @@ def test_who_is_here_and_messages_to_present_and_registered():
     at(2026, 10, 18, 21, 0)
     c = menu_call("0503333331"); c.press("7"); c.press("1")
     m = menu_call("0502222222"); m.press("7"); m.press("2")
-    m.press("2"); m.press("/8/trip.wav")
+    assert "לכל הנרשמים הקישו 0" in m.press("2")
+    assert "לצינתוק בלבד" in m.press("0")
+    m.press("1"); m.press("/8/trip.wav")
     with db.connect() as conn:
         msg = conn.execute("SELECT * FROM messages ORDER BY id DESC").fetchone()
         n = conn.execute("SELECT COUNT(*) FROM message_recipients WHERE message_id=?", (msg["id"],)).fetchone()[0]
     assert msg["recipient_label"] == "הנרשמים לנסיעה" and n == 2                # + the manager's copy
+    # only some options, a tzintuk without a message (phone and site)
+    c = menu_call("0503333332"); c.press("7"); c.press("2")
+    rung = []
+    old = nbs.run_tzintuk
+    nbs.run_tzintuk = lambda phones: (rung.append(phones) or (True, "9"))
+    try:
+        m = menu_call("0502222222"); m.press("7"); m.press("2"); m.press("2"); m.press("2")
+        assert "נשלח ל 1 אברכים" in m.press("2")
+        assert rung[-1] == ["0503333332"]
+        client.post("/admin/registrations", headers=AUTH, data={"tzintuk": "1", "trip": "teveria_5787", "choice": ["1"]})
+        assert rung[-1] == ["0503333331"]
+    finally:
+        nbs.run_tzintuk = old
     f = os.path.join(tempfile.mkdtemp(), "netz.csv")
     open(f, "w").write("2026-10-19,06:22:20\n")
     tefila.NETZ_FILE = f

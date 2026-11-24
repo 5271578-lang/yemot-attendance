@@ -892,8 +892,14 @@ def trip_manager_choice(r, answer, trip):
 
 def trip_status(r, trip):
     rows = trips.signups(trip["id"])
-    parts = [r.t("trip_status_option", n=sum(1 for x in rows if x["choice"] == k), option=_lang(r, o))
-             for k, o in trip["options"].items()]
+    many = len(trip["options"]) > 1
+    parts = []
+    for k, o in trip["options"].items():
+        n = sum(1 for x in rows if x["choice"] == k)
+        if o.get("closed") and not n:
+            continue
+        parts.append(r.t("trip_status_option_num", k=k, n=n, option=_lang(r, o)) if many else
+                     r.t("trip_status_option", n=n, option=_lang(r, o)))
     r.say(r.t("trip_status", n=len(rows), parts=", ".join(parts)))
     r.ask("trip_status_choice", r.t("trip_status_names_menu"), allowed=["1", "2", "0"], trip=trip["id"])
 
@@ -906,13 +912,49 @@ def trip_status_choice(r, answer, trip):
         for k, o in t["options"].items():
             names = [x["name"] for x in rows if x["choice"] == k]
             if names:
-                r.say(_lang(r, o) + ": " + ", ".join(names))
+                r.say((f"{k}, " if len(t["options"]) > 1 else "") + _lang(r, o) + ": " + ", ".join(names))
         if not rows:
             r.say(r.t("trip_none"))
         return trip_status(r, t)
     if answer == "2" and t:
-        return send_to(r, {"type": "trip", "trip": t["id"]})
+        if len(t["options"]) > 1:
+            return r.ask("trip_msg_options", r.t("trip_msg_options"), digits=None, timeout=10, trip=t["id"])
+        return r.ask("trip_msg_kind", r.t("trip_msg_kind"), allowed=["1", "2"], target={"type": "trip", "trip": t["id"]})
     main_menu(r)
+
+
+@step
+def trip_msg_options(r, answer, trip):
+    """Which options get it: 0 = everyone registered, or the option numbers in a row (456)."""
+    t = trips.by_id(trip)
+    if not t:
+        return main_menu(r)
+    picked = [k for k in t["options"] if k in (answer or "")] if (answer or "0").strip("0") else []
+    target = {"type": "trip", "trip": t["id"]}
+    if picked:
+        target["choices"] = picked
+    r.ask("trip_msg_kind", r.t("trip_msg_kind"), allowed=["1", "2"], target=target)
+
+
+@step
+def trip_msg_kind(r, answer, target):
+    if answer == "1":
+        return send_to(r, target)
+    if answer == "2":
+        people = resolve_recipients(employee(r), target)
+        if not people:
+            r.say(r.t("no_recipients"))
+            return main_menu(r)
+        ok, _ = tzintuk_people(people)
+        r.say(r.t("trip_tzintuk_sent", n=len(people)) if ok else r.t("trip_tzintuk_failed"))
+    main_menu(r)
+
+
+def tzintuk_people(people):
+    """A tzintuk (missed-call ring, no message) to these employees, and to their second phone if set for all."""
+    phones = [e["phone"] for e in people if e["phone"]]
+    phones += [e["phone2"] for e in people if e["phone2"] and e["phone2_mode"] == "all"]
+    return nbs.run_tzintuk(phones)
 
 
 # ---- temporary registration extensions (trips.py) ------------------------
@@ -2410,7 +2452,8 @@ def resolve_recipients(sender, target):
     if t == "present":
         return present_now(scope)[1]
     if t == "trip":
-        ids = {x["employee_id"] for x in trips.signups(target["trip"])}
+        ids = {x["employee_id"] for x in trips.signups(target["trip"])
+               if not target.get("choices") or x["choice"] in target["choices"]}
         return [e for e in scope if e["id"] in ids]
     if t in ("tefila_today", "tefila_all"):
         with db.connect() as c:
@@ -2472,6 +2515,8 @@ def target_label(target, recipients):
         return "קבוצת ההסעה של הנהג והנהגים"
     if target["type"] == "employees":
         return ", ".join(e["name"] for e in recipients)
+    if target["type"] == "trip" and target.get("choices"):
+        return "הנרשמים לנסיעה, אפשרות " + ", ".join(target["choices"])
     return TARGET_LABELS.get(target["type"]) or (
         GROUPS_SHORT["he"].get(target["group"], f"קבוצה {target['group']}") if target["type"] == "group" else
         (recipients[0]["name"] if recipients else "עובד"))
