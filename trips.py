@@ -20,21 +20,28 @@ TRIPS = [
         # TTS: no quotes or hyphens; numbers in words
         "intro": {
             "he": "הרשמה לנסיעה להילולת רבינו הקדוש בציפורי. "
-                  "לנסיעה ארוכה, יציאה מוקדמת ולימוד באזור, הקש 1. "
-                  "לנסיעה בינונית, יציאה מוקדמת ולימוד בבית המדרש, הקש 2. "
-                  "לנסיעה בבוקר הקישו 3",
+                  "ליציאה מוקדמת וחזרה לשחרית הקישו 1. "
+                  "ליציאה בשעה רגילה וחזרה אחרי שחרית הקישו 2. "
+                  "ליציאה בבוקר הקישו 3",
             "en": "Registration for the trip to the hilula of Rabbeinu HaKadosh in Tzippori. "
-                  "For the long trip, leaving early and learning in the area, press 1. "
-                  "For the medium trip, leaving early and learning in the beis medrash, press 2. "
-                  "For the morning trip, press 3",
+                  "To leave early and be back for Shacharis, press 1. "
+                  "To leave at the usual time and be back after Shacharis, press 2. "
+                  "To leave in the morning, press 3",
         },
         "options": {
-            "1": {"he": "נסיעה ארוכה", "en": "the long trip", "admin": "נסיעה ארוכה - יציאה מוקדמת ולימוד באזור"},
-            "2": {"he": "נסיעה בינונית", "en": "the medium trip", "admin": "נסיעה בינונית - יציאה מוקדמת ולימוד בביהמ\"ד"},
-            "3": {"he": "נסיעה בבוקר", "en": "the morning trip", "admin": "נסיעה בבוקר"},
+            "1": {"he": "יציאה מוקדמת וחזרה לשחרית", "en": "leaving early, back for Shacharis",
+                  "admin": "יציאה מוקדמת וחזרה לשחרית"},
+            "2": {"he": "יציאה בשעה רגילה וחזרה אחרי שחרית", "en": "leaving at the usual time, back after Shacharis",
+                  "admin": "יציאה בשעה רגילה וחזרה אחרי שחרית"},
+            "3": {"he": "יציאה בבוקר", "en": "leaving in the morning", "admin": "יציאה בבוקר"},
             # the old option 3 (until 24/11 10:36): kept for those who chose it, not offered on the phone
             "4": {"he": "נסיעה קצרה", "en": "the short trip", "admin": "נסיעה קצרה - יציאה רגילה וחזרה לשחרית",
                   "closed": True},
+            # the options 1 and 2 before 24/11 14:10: kept for those who chose them, not offered on the phone
+            "5": {"he": "נסיעה ארוכה", "en": "the long trip", "admin": "נסיעה ארוכה - יציאה מוקדמת ולימוד באזור (נוסח קודם)",
+                  "closed": True},
+            "6": {"he": "נסיעה בינונית", "en": "the medium trip",
+                  "admin": "נסיעה בינונית - יציאה מוקדמת ולימוד בביהמ\"ד (נוסח קודם)", "closed": True},
         },
         "saved": {"he": "נרשמת בהצלחה, {option}", "en": "You are registered, {option}"},
         "already": {"he": "אתה כבר רשום, {option}. אפשר לשנות בהקשה חדשה",
@@ -151,6 +158,18 @@ def move_old_short_once():
         c.execute("UPDATE trip_signups SET choice='4' WHERE trip='nesia_kislev14_5787' AND choice='3' AND created_at<?",
                   ("2026-11-24T10:36:19",))
     db.set_setting("trip_tz_move_3_4", "1")
+
+
+def move_old_long_once():
+    """24/11 14:10: options 1 and 2 got a new meaning; who chose them before this version went live -> 5 and 6."""
+    if db.get_setting("trip_tz_move_12_56"):
+        return
+    cut = db.now().isoformat()
+    with db.connect() as c:
+        for old, new in (("1", "5"), ("2", "6")):
+            c.execute("UPDATE trip_signups SET choice=? WHERE trip='nesia_kislev14_5787' AND choice=? AND created_at<?",
+                      (new, old, cut))
+    db.set_setting("trip_tz_move_12_56", "1")
 
 
 def register(trip_id, emp_id, choice):
